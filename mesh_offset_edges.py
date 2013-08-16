@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1),
+    "version": (0, 1, 1),
     "blender": (2, 68, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -316,29 +316,29 @@ class OffsetEdges(bpy.types.Operator):
             vec_edge_prev - vec_edge_prev.dot(vec_normal) * vec_normal
         vec_edge_prev2d.normalize()
 
-        vec_angle = vec_edge_act2d.angle(vec_edge_prev2d)
-        if vec_angle < threshold:
+        vec_angle2d = vec_edge_act2d.angle(vec_edge_prev2d)
+        if vec_angle2d < threshold:
             # FOLD edges
             flags.add('FOLD')
             vec_tangent = vec_edge_act2d
-            vec_angle = ANGLE_360
-        elif vec_angle > ANGLE_180 - threshold:
+            vec_angle2d = ANGLE_360
+        elif vec_angle2d > ANGLE_180 - threshold:
             # STRAIGHT edges
             flags.add('STRAIGHT')
             vec_tangent = vec_edge_act2d.cross(vec_normal)
-            vec_angle = ANGLE_180
+            vec_angle2d = ANGLE_180
         else:
             direction = vec_edge_act2d.cross(vec_edge_prev2d).dot(vec_normal)
             if direction > .0:
                 # CONVEX corner
                 flags.add('CONVEX')
                 vec_tangent = -(vec_edge_act2d + vec_edge_prev2d).normalized()
-                vec_angle = vec_edge_act2d.angle(vec_edge_prev2d)
+                vec_angle2d = vec_edge_act2d.angle(vec_edge_prev2d)
             else:
                 # CONCAVE corner
                 flags.add('CONCAVE')
                 vec_tangent = (vec_edge_act2d + vec_edge_prev2d).normalized()
-                vec_angle = ANGLE_360 - vec_edge_act2d.angle(vec_edge_prev2d)
+                vec_angle2d = ANGLE_360 - vec_edge_act2d.angle(vec_edge_prev2d)
 
         if vec_tangent.dot(vec_normal):
             # Make vec_tangent perpendicular to vec_normal
@@ -362,12 +362,12 @@ class OffsetEdges(bpy.types.Operator):
         elif 'FACE_CROSS_LINE' in flags:
             angle_a = vec_tangent.angle(vec_edge_act2d)
             angle_p = vec_tangent.angle(vec_edge_prev2d)
-            angle_sum = vec_angle + angle_a + angle_p
+            angle_sum = vec_angle2d + angle_a + angle_p
             if (angle_a < threshold or angle_p < threshold
                or angle_sum > ANGLE_360 + threshold):
                 # For the case in which vec_tangent is not
                 # between vec_edge_act2d and vec_edge_prev2d.
-                    vec_tangent = (vec_edge_act + vec_edge_prev)
+                    vec_tangent = vec_edge_act + vec_edge_prev
                     # Using original vector is more intuitive
                     # than using 2d edges.
                     vec_tangent.normalize()
