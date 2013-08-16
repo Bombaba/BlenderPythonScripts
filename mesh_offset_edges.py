@@ -224,8 +224,13 @@ class OffsetEdges(bpy.types.Operator):
     def clean_geometry(self, bm):
         bm.normal_update()
 
-        # Align extruded face normals
+        offset_edges = self.offset_edges
+        side_edges = self.side_edges
+        side_faces = self.side_faces
+        v_v_pairs = self.v_v_pairs
         l_fn_pairs = self.l_fn_pairs
+
+        # Align extruded face normals
         if self.geometry_mode == 'extrude':
             for f in self.faces:
                 for l in f.loops:
@@ -239,10 +244,6 @@ class OffsetEdges(bpy.types.Operator):
 
         bmesh.ops.delete(bm, geom=self.faces, context=1)
 
-        offset_edges = self.offset_edges
-        side_edges = self.side_edges
-        side_faces = self.side_faces
-        v_v_pairs = self.v_v_pairs
 
         if self.geometry_mode != 'extrude':
             if self.geometry_mode == 'offset':
@@ -254,8 +255,7 @@ class OffsetEdges(bpy.types.Operator):
                     bm, geom=side_edges+side_faces+offset_edges,
                     context=1)
 
-        extended = set()
-        extended.update(self.extended_verts)
+        extended = set(self.extended_verts)
         for v in self.extended_verts:
             extended.update(v.link_edges)
             extended.update(v.link_faces)
@@ -376,12 +376,12 @@ class OffsetEdges(bpy.types.Operator):
                     factor_act = factor_prev = \
                         1.0 / sin(vec_tangent.angle(vec_edge_act))
             else:
-                factor_act = 1. / sin(vec_tangent.angle(vec_edge_act2d))
-                factor_prev = 1. / sin(vec_tangent.angle(vec_edge_prev2d))
+                factor_act = 1. / sin(vec_tangent.angle(vec_edge_act))
+                factor_prev = 1. / sin(vec_tangent.angle(vec_edge_prev))
 
         else:
-            factor_act = factor_prev = \
-                1.0 / sin(vec_tangent.angle(vec_edge_act2d))
+            factor_act = 1. / sin(vec_tangent.angle(vec_edge_act))
+            factor_prev = 1. / sin(vec_tangent.angle(vec_edge_prev))
 
         return vec_tangent, factor_act, factor_prev
 
