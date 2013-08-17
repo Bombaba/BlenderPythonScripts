@@ -228,6 +228,7 @@ class OffsetEdges(bpy.types.Operator):
         offset_edges = self.offset_edges
         side_edges = self.side_edges
         side_faces = self.side_faces
+        extended_verts = set(self.extended_verts)
         v_v_pairs = self.v_v_pairs
         l_fn_pairs = self.l_fn_pairs
 
@@ -255,9 +256,10 @@ class OffsetEdges(bpy.types.Operator):
                 bmesh.ops.delete(
                     bm, geom=side_edges+side_faces+offset_edges+offset_verts,
                     context=1)
+                extended_verts -= set(offset_verts)
 
-        extended = set(self.extended_verts)
-        for v in self.extended_verts:
+        extended = extended_verts.copy()
+        for v in extended_verts:
             extended.update(v.link_edges)
             extended.update(v.link_faces)
         bmesh.ops.delete(bm, geom=list(extended), context=1)
