@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 2),
+    "version": (0, 1, 3),
     "blender": (2, 68, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -119,8 +119,7 @@ class OffsetEdges(bpy.types.Operator):
 
         edge_loops = selected_edges.copy()
 
-        self.extended_verts = []
-        self.extended_edges = []
+        self.extended_verts = set()
         while end_verts:
             v_start = end_verts.pop()
             e_start = v_es_pairs[v_start][0]
@@ -137,8 +136,8 @@ class OffsetEdges(bpy.types.Operator):
             end_verts.remove(v_current)
 
             geom = bmesh.ops.extrude_vert_indiv(bm, verts=[v_start, v_current])
-            self.extended_verts += geom['verts']
-            self.extended_edges += geom['edges']
+            self.extended_verts.update(geom['verts'])
+            edge_loops += geom['edges']
             for ex_v in geom['verts']:
                 link_edge = ex_v.link_edges[0]
                 if link_edge.other_vert(ex_v) is edge_chain[0][0]:
@@ -151,21 +150,19 @@ class OffsetEdges(bpy.types.Operator):
                         if e.calc_length() != 0.0:
                             ex_v.co += e.other_vert(v).co - v.co
                             break
-            self.extended_edges.append(bm.edges.new(geom['verts']))
-
-        edge_loops += self.extended_edges
+            edge_loops.append(bm.edges.new(geom['verts']))
 
         return edge_loops
 
     def create_geometry(self, bm, e_loops):
-        geom_extruded = bmesh.ops.extrude_edge_only(bm, edges=e_loops)
+        geom_extruded = bmesh.ops.extrude_edge_only(bm, edges=e_loops)['geom']
 
         self.offset_verts = offset_verts = \
-            [e for e in geom_extruded['geom'] if isinstance(e, bmesh.types.BMVert)]
+            [e for e in geom_extruded if isinstance(e, bmesh.types.BMVert)]
         self.offset_edges = offset_edges = \
-            [e for e in geom_extruded['geom'] if isinstance(e, bmesh.types.BMEdge)]
+            [e for e in geom_extruded if isinstance(e, bmesh.types.BMEdge)]
         self.side_faces = side_faces = \
-            [f for f in geom_extruded['geom'] if isinstance(f, bmesh.types.BMFace)]
+            [f for f in geom_extruded if isinstance(f, bmesh.types.BMFace)]
         bmesh.ops.recalc_face_normals(bm, faces=side_faces)
         self.side_edges = side_edges = \
             [e.link_loops[0].link_loop_next.edge for e in offset_edges]
@@ -185,7 +182,7 @@ class OffsetEdges(bpy.types.Operator):
             v_v_pairs[v_offset] = v_orig
 
             if v_orig in extended_verts:
-                extended_verts.append(v_offset)
+                extended_verts.add(v_offset)
 
         self.faces = faces = bmesh.ops.edgeloop_fill(
             bm, edges=offset_edges, mat_nr=0, use_smooth=False)['faces']
@@ -228,7 +225,7 @@ class OffsetEdges(bpy.types.Operator):
         offset_edges = self.offset_edges
         side_edges = self.side_edges
         side_faces = self.side_faces
-        extended_verts = set(self.extended_verts)
+        extended_verts = self.extended_verts
         v_v_pairs = self.v_v_pairs
         l_fn_pairs = self.l_fn_pairs
 
