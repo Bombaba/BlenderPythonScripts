@@ -422,6 +422,11 @@ class OffsetEdges(bpy.types.Operator):
                     prev_loop = f_loop.link_loop_prev
                     prev_loop, skip_prev_co = \
                         self.skip_zero_width_edges(prev_loop, reverse=True)
+
+                    n1 = l_fn_pairs.get(act_loop)
+                    n2 = l_fn_pairs.get(prev_loop)
+                    vectors = self.get_vector(
+                        act_loop, prev_loop, n1, n2, threshold)
                 else:
                     act_loop, skip_next_co = \
                         self.skip_zero_width_edges(f_loop, f_normal, reverse=False)
@@ -430,12 +435,6 @@ class OffsetEdges(bpy.types.Operator):
                     prev_loop, skip_prev_co = \
                         self.skip_zero_width_edges(prev_loop, f_normal, reverse=True)
 
-                if self.follow_face:
-                    n1 = l_fn_pairs.get(act_loop)
-                    n2 = l_fn_pairs.get(prev_loop)
-                    vectors = self.get_vector(
-                        act_loop, prev_loop, n1, n2, threshold)
-                else:
                     vectors = self.get_vector(
                         act_loop, prev_loop, threshold=threshold)
 
