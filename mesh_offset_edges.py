@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 1),
+    "version": (0, 1, 2),
     "blender": (2, 68, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -224,6 +224,7 @@ class OffsetEdges(bpy.types.Operator):
     def clean_geometry(self, bm):
         bm.normal_update()
 
+        offset_verts = self.offset_verts
         offset_edges = self.offset_edges
         side_edges = self.side_edges
         side_faces = self.side_faces
@@ -252,7 +253,7 @@ class OffsetEdges(bpy.types.Operator):
                 for v_target, v_orig in v_v_pairs.items():
                     v_orig.co = v_target.co
                 bmesh.ops.delete(
-                    bm, geom=side_edges+side_faces+offset_edges,
+                    bm, geom=side_edges+side_faces+offset_edges+offset_verts,
                     context=1)
 
         extended = set(self.extended_verts)
