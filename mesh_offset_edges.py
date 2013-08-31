@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 4),
+    "version": (0, 1, 5),
     "blender": (2, 68, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -35,7 +35,7 @@ import math
 from math import sin, pi
 import bpy
 import bmesh
-from mathutils import Vector
+from mathutils import Vector, Quaternion
 
 Z_UP = Vector((.0, .0, 1.0))
 ANGLE_90 = pi / 2
@@ -171,8 +171,8 @@ class OffsetEdges(bpy.types.Operator):
             f.select = True
 
         extended_verts = self.extended_verts
-        self.v_v_pairs = v_v_pairs = dict()  # keys are offset verts,
-                                             # values are original verts
+        self.v_v_pairs = v_v_pairs = dict()  # keys is offset vert,
+                                             # values is original vert.
         for e in side_edges:
             v1, v2 = e.verts
             if v1 in offset_verts:
@@ -243,7 +243,6 @@ class OffsetEdges(bpy.types.Operator):
 
         bmesh.ops.delete(bm, geom=self.faces, context=1)
 
-
         if self.geometry_mode != 'extrude':
             if self.geometry_mode == 'offset':
                 bmesh.ops.delete(bm, geom=side_edges+side_faces, context=1)
@@ -287,18 +286,45 @@ class OffsetEdges(bpy.types.Operator):
 
     @staticmethod
     def get_vector(loop_act, loop_prev,
-                    f_normal_act=None, f_normal_prev=None,
+                    f_normal_act=None, f_normal_prev=None, rotaxis=None,
                     threshold=1.0e-4):
-
         vec_edge_act = loop_act.link_loop_next.vert.co - loop_act.vert.co
         vec_edge_act.normalize()
 
         vec_edge_prev = loop_prev.vert.co - loop_prev.link_loop_next.vert.co
         vec_edge_prev.normalize()
 
+
+        f_cross = None
+        rotated = False
         if f_normal_act and f_normal_prev:
-            vec_normal = f_normal_act + f_normal_prev
-            vec_normal.normalize()
+            f_normal_act = f_normal_act.normalized()
+            f_normal_prev = f_normal_prev.normalized()
+
+            f_angle = f_normal_act.angle(f_normal_prev)
+            if threshold < f_angle < ANGLE_180 - threshold:
+                vec_normal = f_normal_act + f_normal_prev
+                vec_normal.normalize()
+                f_cross = f_normal_act.cross(f_normal_prev)
+                f_cross.normalize()
+            elif f_angle > ANGLE_180 - threshold and rotaxis:
+                # vec_edge and f_normal are slightly rotated
+                # in order to manage folding faces.
+                vec_edge_act_orig = vec_edge_act.copy()
+                vec_edge_prev_orig = vec_edge_prev.copy()
+
+                rot_act = Quaternion(rotaxis, 2 * threshold)
+                rot_prev = rot_act.inverted()
+                vec_edge_act.rotate(rot_act)
+                vec_edge_prev.rotate(rot_prev)
+                f_normal_act.rotate(rot_act)
+                f_normal_prev.rotate(rot_prev)
+
+                vec_normal = f_normal_act + f_normal_prev
+                vec_normal.normalize()
+                rotated = True
+            else:
+                vec_normal = f_normal_act
         elif f_normal_act or f_normal_prev:
             vec_normal = (f_normal_act or f_normal_prev).normalized()
         else:
@@ -308,6 +334,7 @@ class OffsetEdges(bpy.types.Operator):
                     vec_normal = Z_UP - Z_UP.project(vec_edge_act)
                     vec_normal.normalize()
                 else:
+                    # vec_edge is parallel to Z_UP
                     vec_normal = Vector((.0, 1.0, .0))
 
         # 2d edge vectors are perpendicular to vec_normal
@@ -319,24 +346,24 @@ class OffsetEdges(bpy.types.Operator):
 
         angle2d = vec_edge_act2d.angle(vec_edge_prev2d)
         if angle2d < threshold:
-            # FOLD edges
+            # folding corner
             corner_type = 'FOLD'
             vec_tangent = vec_edge_act2d
             vec_angle2d = ANGLE_360
         elif angle2d > ANGLE_180 - threshold:
-            # STRAIGHT edges
+            # straight corner
             corner_type = 'STRAIGHT'
             vec_tangent = vec_edge_act2d.cross(vec_normal)
             vec_angle2d = ANGLE_180
         else:
             direction = vec_edge_act2d.cross(vec_edge_prev2d).dot(vec_normal)
             if direction > .0:
-                # CONVEX corner
+                # convex corner
                 corner_type = 'CONVEX'
                 vec_tangent = -(vec_edge_act2d + vec_edge_prev2d)
                 vec_angle2d = angle2d
             else:
-                # CONCAVE corner
+                # concave corner
                 corner_type = 'CONCAVE'
                 vec_tangent = vec_edge_act2d + vec_edge_prev2d
                 vec_angle2d = ANGLE_360 - angle2d
@@ -347,40 +374,34 @@ class OffsetEdges(bpy.types.Operator):
 
         vec_tangent.normalize()
 
-        face_cross_line = False
-        if f_normal_act and f_normal_prev:
-            f_angle = f_normal_act.angle(f_normal_prev)
-            if f_angle > threshold:
-                f_tangent = f_normal_act.cross(f_normal_prev)
-                f_tangent.normalize()
-                if vec_tangent.dot(f_tangent) < .0:
-                    f_tangent *= -1
-                vec_tangent = f_tangent
-                face_cross_line = True
+        if f_cross:
+            if vec_tangent.dot(f_cross) < .0:
+                f_cross *= -1
 
-
-        if corner_type == 'FOLD':
-            factor_act = factor_prev = 0
-        elif face_cross_line:
-            angle_a = vec_tangent.angle(vec_edge_act2d)
-            angle_p = vec_tangent.angle(vec_edge_prev2d)
+            angle_a = f_cross.angle(vec_edge_act2d)
+            angle_p = f_cross.angle(vec_edge_prev2d)
             angle_sum = vec_angle2d + angle_a + angle_p
             if (angle_a < threshold or angle_p < threshold
                or angle_sum > ANGLE_360 + threshold):
                 # For the case in which vec_tangent is not
                 # between vec_edge_act2d and vec_edge_prev2d.
+                # Probably using 3d edge vectors is
+                # more intuitive than 2d edge vectors.
                     if corner_type == 'CONVEX':
                         vec_tangent = -(vec_edge_act + vec_edge_prev)
                     else:
                         # CONCAVE
                         vec_tangent = vec_edge_act + vec_edge_prev
                     vec_tangent.normalize()
-                    factor_act = factor_prev = \
-                        1.0 / sin(vec_tangent.angle(vec_edge_act))
             else:
-                factor_act = 1. / sin(vec_tangent.angle(vec_edge_act))
-                factor_prev = 1. / sin(vec_tangent.angle(vec_edge_prev))
+                vec_tangent = f_cross
 
+        if rotated:
+            vec_edge_act = vec_edge_act_orig
+            vec_edge_prev = vec_edge_prev_orig
+
+        if corner_type == 'FOLD':
+            factor_act = factor_prev = 0
         else:
             factor_act = 1. / sin(vec_tangent.angle(vec_edge_act))
             factor_prev = 1. / sin(vec_tangent.angle(vec_edge_prev))
@@ -425,8 +446,21 @@ class OffsetEdges(bpy.types.Operator):
 
                     n1 = l_fn_pairs.get(act_loop)
                     n2 = l_fn_pairs.get(prev_loop)
+                    rotaxis = None
+                    if n1 and n2:
+                        angle = n1.angle(n2)
+                        if angle > ANGLE_180 - threshold:
+                            # n1 and n2 are confronting
+                            for e in self.v_v_pairs[act_loop.vert].link_edges:
+                                if (e not in e_loops
+                                   and self.side_edges
+                                   and not e.hide):
+                                    edge = e.verts[0].co - e.verts[1].co
+                                    if edge.length and edge.dot(n1) < threshold:
+                                        rotaxis = edge
+                                        break
                     vectors = self.get_vector(
-                        act_loop, prev_loop, n1, n2, threshold)
+                        act_loop, prev_loop, n1, n2, rotaxis, threshold)
                 else:
                     act_loop, skip_next_co = \
                         self.skip_zero_length_edges(f_loop, f_normal, reverse=False)
