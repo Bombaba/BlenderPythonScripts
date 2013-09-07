@@ -106,16 +106,15 @@ class OffsetEdges(bpy.types.Operator):
                 tuple(e for e in v.link_edges if e in selected_edges)
             len_link = len(selected_link_edges)
 
-            if len_link:
-                if len_link == 2:
-                    v_es_pairs[v] = selected_link_edges
-                elif len_link == 1:
-                    v_es_pairs[v] = selected_link_edges
-                    end_verts.add(v)
-                elif len_link >= 3:
-                    self.report({'WARNING'},
-                                "Select non-branching edge chains")
-                    return None
+            if len_link == 2:
+                v_es_pairs[v] = selected_link_edges
+            elif len_link == 1:
+                v_es_pairs[v] = selected_link_edges
+                end_verts.add(v)
+            elif len_link >= 3:
+                self.report({'WARNING'},
+                            "Select non-branching edge chains")
+                return None
 
         edge_loops = selected_edges.copy()
 
