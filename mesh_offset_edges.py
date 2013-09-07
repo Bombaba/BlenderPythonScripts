@@ -309,7 +309,7 @@ class OffsetEdges(bpy.types.Operator):
         if length and normal:
             # length which is perpendicular to normal
             edge = f_loop.vert.co - f_loop.link_loop_next.vert.co
-            edge -= edge.dot(normal) * normal
+            edge -= edge.project(normal)
             length = edge.length
 
         while length == 0:
@@ -319,7 +319,7 @@ class OffsetEdges(bpy.types.Operator):
             length = f_loop.edge.calc_length()
             if length and normal:
                 edge = f_loop.vert.co - f_loop.link_loop_next.vert.co
-                edge -= edge.dot(normal) * normal
+                edge -= edge.project(normal)
                 length = edge.length
 
         return f_loop, skip_co
