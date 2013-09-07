@@ -127,12 +127,11 @@ class OffsetEdges(bpy.types.Operator):
             v_current = e_start.other_vert(v_start)
             e_prev = e_start
             while v_current not in end_verts:
-                for e in v_es_pairs[v_current]:
-                    if e != e_prev:
-                        edge_chain.append((v_current, e))
-                        v_current = e.other_vert(v_current)
-                        e_prev = e
-                        break
+                e1, e2 = v_es_pairs[v_current]
+                e = e1 if e1 != e_prev else e2
+                edge_chain.append((v_current, e))
+                v_current = e.other_vert(v_current)
+                e_prev = e
             end_verts.remove(v_current)
 
             geom = bmesh.ops.extrude_vert_indiv(bm, verts=[v_start, v_current])
@@ -285,16 +284,9 @@ class OffsetEdges(bpy.types.Operator):
         return f_loop, skip_co
 
     @staticmethod
-    def get_vector(loop_act, loop_prev,
-                    f_normal_act=None, f_normal_prev=None, rotaxis=None,
-                    threshold=1.0e-4):
-        vec_edge_act = loop_act.link_loop_next.vert.co - loop_act.vert.co
-        vec_edge_act.normalize()
-
-        vec_edge_prev = loop_prev.vert.co - loop_prev.link_loop_next.vert.co
-        vec_edge_prev.normalize()
-
-
+    def get_vector(vec_edge_act, vec_edge_prev,
+                   f_normal_act, f_normal_prev=None, rotaxis=None,
+                   threshold=1.0e-4):
         f_cross = None
         rotated = False
         if f_normal_act and f_normal_prev:
@@ -325,10 +317,8 @@ class OffsetEdges(bpy.types.Operator):
                 rotated = True
             else:
                 vec_normal = f_normal_act
-        elif f_normal_act or f_normal_prev:
-            vec_normal = (f_normal_act or f_normal_prev).normalized()
         else:
-            vec_normal = loop_act.face.normal.copy()
+            vec_normal = (f_normal_act or f_normal_prev).normalized()
             if vec_normal.length == .0:
                 if threshold < vec_edge_act.angle(Z_UP) < ANGLE_180 - threshold:
                     vec_normal = Z_UP - Z_UP.project(vec_edge_act)
@@ -432,26 +422,38 @@ class OffsetEdges(bpy.types.Operator):
 
         for f in fs:
             f_normal = f.normal
+            normal = f_normal if not self.follow_face else None
 
             move_vectors = []
 
             for f_loop in f.loops:
-                if self.follow_face:
-                    act_loop, skip_next_co = \
-                        self.skip_zero_length_edges(f_loop, reverse=False)
+                loop_act, skip_next_co = \
+                    self.skip_zero_length_edges(f_loop, normal, reverse=False)
 
-                    prev_loop = f_loop.link_loop_prev
-                    prev_loop, skip_prev_co = \
-                        self.skip_zero_length_edges(prev_loop, reverse=True)
+                loop_prev = f_loop.link_loop_prev
+                loop_prev, skip_prev_co = \
+                    self.skip_zero_length_edges(loop_prev, normal, reverse=True)
 
-                    n1 = l_fn_pairs.get(act_loop)
-                    n2 = l_fn_pairs.get(prev_loop)
+                vec_edge_act = loop_act.link_loop_next.vert.co - loop_act.vert.co
+                vec_edge_act.normalize()
+
+                vec_edge_prev = loop_prev.vert.co - loop_prev.link_loop_next.vert.co
+                vec_edge_prev.normalize()
+
+                if not self.follow_face:
+                    n1, n2 = f_normal, None
                     rotaxis = None
-                    if n1 and n2:
+                else:
+                    n1 = l_fn_pairs.get(loop_act)
+                    n2 = l_fn_pairs.get(loop_prev)
+                    rotaxis = None
+                    if n1 is None and n2 is None:
+                        n1 = f_normal
+                    elif n1 and n2:
                         angle = n1.angle(n2)
                         if angle > ANGLE_180 - threshold:
                             # n1 and n2 are confronting
-                            for e in self.v_v_pairs[act_loop.vert].link_edges:
+                            for e in self.v_v_pairs[loop_act.vert].link_edges:
                                 if (e not in e_loops
                                    and self.side_edges
                                    and not e.hide):
@@ -459,18 +461,9 @@ class OffsetEdges(bpy.types.Operator):
                                     if edge.length and edge.dot(n1) < threshold:
                                         rotaxis = edge
                                         break
-                    vectors = self.get_vector(
-                        act_loop, prev_loop, n1, n2, rotaxis, threshold)
-                else:
-                    act_loop, skip_next_co = \
-                        self.skip_zero_length_edges(f_loop, f_normal, reverse=False)
 
-                    prev_loop = f_loop.link_loop_prev
-                    prev_loop, skip_prev_co = \
-                        self.skip_zero_length_edges(prev_loop, f_normal, reverse=True)
-
-                    vectors = self.get_vector(
-                        act_loop, prev_loop, threshold=threshold)
+                vectors = self.get_vector(
+                    vec_edge_act, vec_edge_prev, n1, n2, rotaxis, threshold)
 
                 move_vectors.append(vectors)
 
