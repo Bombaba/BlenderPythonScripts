@@ -138,7 +138,7 @@ class OffsetEdges(bpy.types.Operator):
             edge_loops += geom['edges']
             for ex_v in geom['verts']:
                 link_edge = ex_v.link_edges[0]
-                if link_edge.other_vert(ex_v) is edge_chain[0][0]:
+                if link_edge.other_vert(ex_v) is v_start:
                     for v, e in edge_chain:
                         if e.calc_length() != 0.0:
                             ex_v.co += v.co - e.other_vert(v).co
