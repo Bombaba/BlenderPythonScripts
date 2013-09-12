@@ -328,12 +328,20 @@ class OffsetEdges(bpy.types.Operator):
     def get_vector(vec_edge_act, vec_edge_prev,
                    f_normal_act, f_normal_prev=None, rotaxis=None,
                    threshold=1.0e-4):
+        if f_normal_act:
+            if f_normal_act.length:
+                f_normal_act = f_normal_act.normalized()
+            else:
+                f_normal_act = None
+        if f_normal_prev:
+            if f_normal_prev.length:
+                f_normal_prev = f_normal_prev.normalized()
+            else:
+                f_normal_prev = None
+
         f_cross = None
         rotated = False
         if f_normal_act and f_normal_prev:
-            f_normal_act = f_normal_act.normalized()
-            f_normal_prev = f_normal_prev.normalized()
-
             f_angle = f_normal_act.angle(f_normal_prev)
             if threshold < f_angle < ANGLE_180 - threshold:
                 vec_normal = f_normal_act + f_normal_prev
@@ -358,15 +366,15 @@ class OffsetEdges(bpy.types.Operator):
                 rotated = True
             else:
                 vec_normal = f_normal_act
+        elif f_normal_act or f_normal_prev:
+            vec_normal = f_normal_act or f_normal_prev
         else:
-            vec_normal = (f_normal_act or f_normal_prev).normalized()
-            if vec_normal.length == .0:
-                if threshold < vec_edge_act.angle(Z_UP) < ANGLE_180 - threshold:
-                    vec_normal = Z_UP - Z_UP.project(vec_edge_act)
-                    vec_normal.normalize()
-                else:
-                    # vec_edge is parallel to Z_UP
-                    vec_normal = Y_UP.copy()
+            if threshold < vec_edge_act.angle(Z_UP) < ANGLE_180 - threshold:
+                vec_normal = Z_UP - Z_UP.project(vec_edge_act)
+                vec_normal.normalize()
+            else:
+                # vec_edge is parallel to Z_UP
+                vec_normal = Y_UP.copy()
 
         # 2d edge vectors are perpendicular to vec_normal
         vec_edge_act2d = vec_edge_act - vec_edge_act.project(vec_normal)
