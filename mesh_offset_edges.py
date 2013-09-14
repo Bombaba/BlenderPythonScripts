@@ -40,6 +40,7 @@ from mathutils import Vector, Quaternion
 X_UP = Vector((1.0, .0, .0))
 Y_UP = Vector((.0, 1.0, .0))
 Z_UP = Vector((.0, .0, 1.0))
+ZERO_VEC = Vector((.0, .0, .0))
 ANGLE_90 = pi / 2
 ANGLE_180 = pi
 ANGLE_360 = 2 * pi
@@ -253,10 +254,10 @@ class OffsetEdges(bpy.types.Operator):
                 edge = \
                     fl.link_loop_radial_next.link_loop_next.link_loop_next.edge
                 co = 0
-                normal = Vector((.0, .0, .0))
+                normal = Vector()
                 for f in edge.link_faces:
                     if (f not in side_faces and not f.hide
-                        and f.normal.length):
+                        and f.normal != ZERO_VEC):
                         normal += f.normal
                         co += 1
                         if f.select:
@@ -345,12 +346,12 @@ class OffsetEdges(bpy.types.Operator):
                    f_normal_act, f_normal_prev=None, rotaxis=None,
                    threshold=1.0e-4):
         if f_normal_act:
-            if f_normal_act.length:
+            if f_normal_act != ZERO_VEC:
                 f_normal_act = f_normal_act.normalized()
             else:
                 f_normal_act = None
         if f_normal_prev:
-            if f_normal_prev.length:
+            if f_normal_prev != ZERO_VEC:
                 f_normal_prev = f_normal_prev.normalized()
             else:
                 f_normal_prev = None
@@ -386,7 +387,7 @@ class OffsetEdges(bpy.types.Operator):
             vec_normal = f_normal_act or f_normal_prev
         else:
             vec_normal = vec_edge_act.cross(vec_edge_prev)
-            if vec_normal.length == .0:
+            if vec_normal != ZERO_VEC:
                 if threshold < vec_edge_act.angle(Z_UP) < ANGLE_180 - threshold:
                     vec_normal = Z_UP - Z_UP.project(vec_edge_act)
                     vec_normal.normalize()
@@ -561,7 +562,7 @@ class OffsetEdges(bpy.types.Operator):
                                    and self.side_edges
                                    and not e.hide):
                                     edge = e.verts[0].co - e.verts[1].co
-                                    if edge.length and edge.dot(n1) < threshold:
+                                    if edge != ZERO_VEC and edge.dot(n1) < threshold:
                                         rotaxis = edge
                                         break
 
