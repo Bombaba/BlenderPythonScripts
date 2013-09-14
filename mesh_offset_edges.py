@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 6),
+    "version": (0, 1, 7),
     "blender": (2, 68, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -166,7 +166,7 @@ class OffsetEdges(bpy.types.Operator):
                             mirror_v_p_pairs[v] = plane
                             break
 
-        edge_loops = selected_edges.copy()
+        self.edge_loops = edge_loops = selected_edges
 
         self.extended_verts = extended_verts = set()
         while end_verts:
@@ -249,6 +249,8 @@ class OffsetEdges(bpy.types.Operator):
             for face in img_faces for fl in face.loops}
         self.average_fn = dict()  # edge:average_face_normal pairs.
                                   # Used later.
+        self.inner_edge = dict()  # edge:inner_edge pairs.
+                                  # Used later.
         for face in img_faces:
             #face.loops.index_update()
             for fl in face.loops:
@@ -283,6 +285,44 @@ class OffsetEdges(bpy.types.Operator):
         else:
             average_fn[edge] = None
             return None
+
+    def get_inner_vec(self, floop):
+        """Get most inner edge vector connecting to floop.vert"""
+        inner_edge  = self.inner_edge
+        v_v_pairs = self.v_v_pairs
+        vert = v_v_pairs[floop.vert]
+        if vert in inner_edge:
+            return inner_edge[vert]
+
+        vec_base = v_v_pairs[floop.link_loop_next.vert].co - vert.co
+        vec_base.normalize()
+
+        most_inner_selected = None
+        dot_min_selected = 1.0
+        most_inner = None
+        dot_min = 1.0
+
+        edge_loops, side_edges = self.edge_loops, self.side_edges
+        for e in vert.link_edges:
+            if e in edge_loops or e in side_edges or e.hide:
+                continue
+            vec_e = e.other_vert(vert).co - vert.co
+            if vec_e == ZERO_VEC:
+                continue
+            vec_e.normalize()
+            dot = abs(vec_e.dot(vec_base))
+            if e.select and dot < dot_min_selected:
+                dot_min_selected = dot
+                most_inner_selected = vec_e
+            elif dot < dot_min:
+                dot_min = dot
+                most_inner = vec_e
+        if most_inner_selected:
+            inner_edge[vert] = most_inner_selected
+            return most_inner_selected
+        else:
+            inner_edge[vert] = most_inner
+            return most_inner
 
     def clean_geometry(self, bm):
         bm.normal_update()
@@ -528,16 +568,19 @@ class OffsetEdges(bpy.types.Operator):
 
         fs = self.create_geometry(bm, e_loops)
 
-        width = self.width if not self.flip else -self.width
+        follow_face = self.follow_face
         threshold = self.threshold
         mirror_v_p_pairs = self.mirror_v_p_pairs
 
         for f in fs:
+            width = self.width if not self.flip else -self.width
+
             f_normal = f.normal
             normal = f_normal if not self.follow_face else None
 
             move_vectors = []
 
+            direction_checked = False
             for f_loop in f.loops:
                 loop_act, skip_next_co = \
                     self.skip_zero_length_edges(f_loop, normal, reverse=False)
@@ -552,7 +595,7 @@ class OffsetEdges(bpy.types.Operator):
                 vec_edge_prev = loop_prev.vert.co - loop_prev.link_loop_next.vert.co
                 vec_edge_prev.normalize()
 
-                if not self.follow_face:
+                if not follow_face:
                     n1, n2 = f_normal, None
                     rotaxis = None
                 else:
@@ -565,17 +608,17 @@ class OffsetEdges(bpy.types.Operator):
                         angle = n1.angle(n2)
                         if angle > ANGLE_180 - threshold:
                             # n1 and n2 are confronting
-                            for e in self.v_v_pairs[loop_act.vert].link_edges:
-                                if (e not in e_loops
-                                   and self.side_edges
-                                   and not e.hide):
-                                    edge = e.verts[0].co - e.verts[1].co
-                                    if edge != ZERO_VEC and edge.dot(n1) < threshold:
-                                        rotaxis = edge
-                                        break
+                            rotaxis = self.get_inner_vec(loop_act)
 
                 vectors = self.get_vector(
                     vec_edge_act, vec_edge_prev, n1, n2, rotaxis, threshold)
+
+                if follow_face and not direction_checked:
+                    vec_direct = self.get_inner_vec(f_loop)
+                    if vec_direct:
+                        if vectors[0].dot(vec_direct) > .0:
+                            width *= -1
+                        direction_checked = True
 
                 move_vectors.append(vectors)
 
