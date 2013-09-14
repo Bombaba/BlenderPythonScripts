@@ -244,35 +244,45 @@ class OffsetEdges(bpy.types.Operator):
         self.img_faces = img_faces = bmesh.ops.edgeloop_fill(
             bm, edges=offset_edges, mat_nr=0, use_smooth=False)['faces']
 
-        self.l_fn_pairs = l_fn_pairs = dict()  # loop - average face normal pairs.
+        self.e_e_pairs = {
+            fl.edge:fl.link_loop_radial_next.link_loop_next.link_loop_next.edge
+            for face in img_faces for fl in face.loops}
+        self.average_fn = dict()  # edge:average_face_normal pairs.
+                                  # Used later.
         for face in img_faces:
             #face.loops.index_update()
-            if face.normal.dot(v_v_pairs[face.verts[0]].normal) < .0:
-                face.normal_flip()
-
             for fl in face.loops:
-                edge = \
-                    fl.link_loop_radial_next.link_loop_next.link_loop_next.edge
-                co = 0
-                normal = Vector()
-                for f in edge.link_faces:
-                    if (f not in side_faces and not f.hide
-                        and f.normal != ZERO_VEC):
-                        normal += f.normal
-                        co += 1
-                        if f.select:
-                            l_fn_pairs[fl] = f.normal.copy()
-                            break
-                else:
-                    if co:
-                        normal.normalize()
-                        l_fn_pairs[fl] = normal
-                # Be careful, if you flip face normal after
-                # this line, l_fn_pairs won't work as you expect
-                # because face.normal_flip() changes loop order in
-                # the face.
-
+                fn = self.get_average_fnorm(fl)
+                if fn and face.normal.dot(fn) < .0:
+                    face.normal_flip()
+                    break
         return img_faces
+
+    def get_average_fnorm(self, floop):
+        edge = floop.edge
+        average_fn = self.average_fn
+        if edge in average_fn:
+            return average_fn[edge]
+
+        side_faces = self.side_faces
+        co = 0
+        normal = Vector()
+        for f in self.e_e_pairs[edge].link_faces:
+            if (f not in side_faces and not f.hide
+                and f.normal != ZERO_VEC):
+                if f.select:
+                    average_fn[edge] = f.normal.copy()
+                    return average_fn[edge]
+                else:
+                    normal += f.normal
+                    co += 1
+        if co:
+            normal.normalize()
+            average_fn[edge] = normal
+            return average_fn[edge]
+        else:
+            average_fn[edge] = None
+            return None
 
     def clean_geometry(self, bm):
         bm.normal_update()
@@ -284,14 +294,13 @@ class OffsetEdges(bpy.types.Operator):
         side_faces = self.side_faces
         extended_verts = self.extended_verts
         v_v_pairs = self.v_v_pairs
-        l_fn_pairs = self.l_fn_pairs
 
         # Align extruded face normals
         if self.geometry_mode == 'extrude':
             for f in img_faces:
                 for l in f.loops:
                     side = l.link_loop_radial_next.face
-                    direction = l_fn_pairs.get(l)
+                    direction = self.get_average_fnorm(l)
                     if direction:
                         if side.normal.dot(direction) < .0:
                             side.normal_flip()
@@ -521,7 +530,6 @@ class OffsetEdges(bpy.types.Operator):
 
         width = self.width if not self.flip else -self.width
         threshold = self.threshold
-        l_fn_pairs = self.l_fn_pairs
         mirror_v_p_pairs = self.mirror_v_p_pairs
 
         for f in fs:
@@ -548,8 +556,8 @@ class OffsetEdges(bpy.types.Operator):
                     n1, n2 = f_normal, None
                     rotaxis = None
                 else:
-                    n1 = l_fn_pairs.get(loop_act)
-                    n2 = l_fn_pairs.get(loop_prev)
+                    n1 = self.get_average_fnorm(loop_act)
+                    n2 = self.get_average_fnorm(loop_prev)
                     rotaxis = None
                     if n1 is None and n2 is None:
                         n1 = f_normal
