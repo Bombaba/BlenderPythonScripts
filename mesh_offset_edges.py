@@ -387,7 +387,7 @@ class OffsetEdges(bpy.types.Operator):
             vec_normal = f_normal_act or f_normal_prev
         else:
             vec_normal = vec_edge_act.cross(vec_edge_prev)
-            if vec_normal != ZERO_VEC:
+            if vec_normal == ZERO_VEC:
                 if threshold < vec_edge_act.angle(Z_UP) < ANGLE_180 - threshold:
                     vec_normal = Z_UP - Z_UP.project(vec_edge_act)
                     vec_normal.normalize()
