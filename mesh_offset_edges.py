@@ -622,7 +622,7 @@ class OffsetEdges(bpy.types.Operator):
                     vec_edge_act, vec_edge_prev, n1, n2, rotaxis, threshold)
 
                 if follow_face and not direction_checked:
-                    vec_direct = self.get_inner_vec(floop)
+                    vec_direct = self.get_inner_vec(loop_act)
                     if vec_direct:
                         if vectors[0].dot(vec_direct) > .0:
                             width *= -1
