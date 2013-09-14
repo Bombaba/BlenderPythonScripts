@@ -367,28 +367,28 @@ class OffsetEdges(bpy.types.Operator):
         bmesh.ops.delete(bm, geom=list(extended), context=1)
 
     @staticmethod
-    def skip_zero_length_edges(f_loop, normal=None, reverse=False):
+    def skip_zero_length_edges(floop, normal=None, reverse=False):
         if normal:
             normal = normal.normalized()
         skip_co = 0
-        length = f_loop.edge.calc_length()
+        length = floop.edge.calc_length()
         if length and normal:
             # length which is perpendicular to normal
-            edge = f_loop.vert.co - f_loop.link_loop_next.vert.co
+            edge = floop.vert.co - floop.link_loop_next.vert.co
             edge -= edge.project(normal)
             length = edge.length
 
         while length == 0:
-            f_loop = (f_loop.link_loop_next if not reverse
-                      else f_loop.link_loop_prev)
+            floop = (floop.link_loop_next if not reverse
+                      else floop.link_loop_prev)
             skip_co += 1
-            length = f_loop.edge.calc_length()
+            length = floop.edge.calc_length()
             if length and normal:
-                edge = f_loop.vert.co - f_loop.link_loop_next.vert.co
+                edge = floop.vert.co - floop.link_loop_next.vert.co
                 edge -= edge.project(normal)
                 length = edge.length
 
-        return f_loop, skip_co
+        return floop, skip_co
 
     @staticmethod
     def get_vector(vec_edge_act, vec_edge_prev,
@@ -581,11 +581,11 @@ class OffsetEdges(bpy.types.Operator):
             move_vectors = []
 
             direction_checked = False
-            for f_loop in f.loops:
+            for floop in f.loops:
                 loop_act, skip_next_co = \
-                    self.skip_zero_length_edges(f_loop, normal, reverse=False)
+                    self.skip_zero_length_edges(floop, normal, reverse=False)
 
-                loop_prev = f_loop.link_loop_prev
+                loop_prev = floop.link_loop_prev
                 loop_prev, skip_prev_co = \
                     self.skip_zero_length_edges(loop_prev, normal, reverse=True)
 
@@ -614,7 +614,7 @@ class OffsetEdges(bpy.types.Operator):
                     vec_edge_act, vec_edge_prev, n1, n2, rotaxis, threshold)
 
                 if follow_face and not direction_checked:
-                    vec_direct = self.get_inner_vec(f_loop)
+                    vec_direct = self.get_inner_vec(floop)
                     if vec_direct:
                         if vectors[0].dot(vec_direct) > .0:
                             width *= -1
@@ -622,19 +622,19 @@ class OffsetEdges(bpy.types.Operator):
 
                 move_vectors.append(vectors)
 
-            for f_loop, vecs in zip(f.loops, move_vectors):
+            for floop, vecs in zip(f.loops, move_vectors):
                 vec_tan, factor_act, factor_prev = vecs
-                f_loop.vert.co += \
+                floop.vert.co += \
                     width * min(factor_act, factor_prev) * vec_tan
 
             if mirror_v_p_pairs:
                 # Crip or extend edges to the mirror planes
-                for f_loop in f.loops:
-                    vert = f_loop.vert
+                for floop in f.loops:
+                    vert = floop.vert
                     plane = mirror_v_p_pairs.get(vert)
                     if plane:
                         point = vert.co.to_4d()
-                        direct = vert.co - f_loop.link_loop_next.vert.co
+                        direct = vert.co - floop.link_loop_next.vert.co
                         direct = direct.to_4d()
                         direct[3] = .0
                         t = -plane.dot(point) / plane.dot(direct)
