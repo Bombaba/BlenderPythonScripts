@@ -81,9 +81,6 @@ class OffsetEdges(bpy.types.Operator):
     flip = bpy.props.BoolProperty(
         name="Flip", default=False,
         description="Flip direction")
-    flip_hole = bpy.props.BoolProperty(
-        name="Flip Hole", default=False,
-        description="Flip direction of hole edges")
     mirror_modifier = bpy.props.BoolProperty(
         name="Mirror Modifier", default=False,
         description="Take into account for Mirror modifier")
@@ -103,7 +100,6 @@ class OffsetEdges(bpy.types.Operator):
 
         layout.prop(self, 'width')
         layout.prop(self, 'flip')
-        layout.prop(self, 'flip_hole')
         layout.prop(self, 'follow_face')
 
         for m in context.edit_object.modifiers:
@@ -578,7 +574,6 @@ class OffsetEdges(bpy.types.Operator):
         fs = self.create_geometry(bm, e_loops)
 
         follow_face = self.follow_face
-        flip_hole = self.flip_hole
         threshold = self.threshold
         mirror_v_p_pairs = self.mirror_v_p_pairs
 
@@ -626,7 +621,7 @@ class OffsetEdges(bpy.types.Operator):
                 vectors = self.get_vector(
                     vec_edge_act, vec_edge_prev, n1, n2, rotaxis, threshold)
 
-                if flip_hole and not direction_checked:
+                if follow_face and not direction_checked:
                     vec_direct = self.get_inner_vec(floop)
                     if vec_direct:
                         if vectors[0].dot(vec_direct) > .0:
