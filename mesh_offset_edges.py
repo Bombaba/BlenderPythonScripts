@@ -45,6 +45,22 @@ ANGLE_180 = pi
 ANGLE_360 = 2 * pi
 
 
+def decompose_vector(vec, vec_s, vec_t):
+    det_xy = vec_s.x * vec_t.y - vec_s.y * vec_t.x
+    if det_xy:
+        s = (vec.x * vec_t.y - vec.y * vec_t.x) / det_xy
+        t = (-vec.x * vec_s.y + vec.y * vec_s.x) / det_xy
+    else:
+        det_yz = vec_s.y * vec_t.z - vec_s.z * vec_t.y
+        if det_yz:
+            s = (vec.x * vec_t.z - vec.y * vec_t.y) / det_yz
+            t = (-vec.x * vec_s.z + vec.y * vec_s.y) / det_yz
+        else:
+            det_zx = vec_s.z * vec_t.x - vec_s.x * vec_t.z
+            s = (vec.x * vec_t.x - vec.y * vec_t.z) / det_zx
+            t = (-vec.x * vec_s.x + vec.y * vec_s.z) / det_zx
+    return s, t
+
 class OffsetEdges(bpy.types.Operator):
     """Offset Edges."""
     bl_idname = "mesh.offset_edges"
@@ -369,12 +385,16 @@ class OffsetEdges(bpy.types.Operator):
         elif f_normal_act or f_normal_prev:
             vec_normal = f_normal_act or f_normal_prev
         else:
-            if threshold < vec_edge_act.angle(Z_UP) < ANGLE_180 - threshold:
-                vec_normal = Z_UP - Z_UP.project(vec_edge_act)
-                vec_normal.normalize()
+            vec_normal = vec_edge_act.cross(vec_edge_prev)
+            if vec_normal.length == .0:
+                if threshold < vec_edge_act.angle(Z_UP) < ANGLE_180 - threshold:
+                    vec_normal = Z_UP - Z_UP.project(vec_edge_act)
+                    vec_normal.normalize()
+                else:
+                    # vec_edge is parallel to Z_UP
+                    vec_normal = Y_UP.copy()
             else:
-                # vec_edge is parallel to Z_UP
-                vec_normal = Y_UP.copy()
+                vec_normal.normalize()
 
         # 2d edge vectors are perpendicular to vec_normal
         vec_edge_act2d = vec_edge_act - vec_edge_act.project(vec_normal)
@@ -417,23 +437,25 @@ class OffsetEdges(bpy.types.Operator):
             if vec_tangent.dot(f_cross) < .0:
                 f_cross *= -1
 
-            angle_a = f_cross.angle(vec_edge_act2d)
-            angle_p = f_cross.angle(vec_edge_prev2d)
-            angle_sum = vec_angle2d + angle_a + angle_p
-            if (angle_a < threshold or angle_p < threshold
-               or angle_sum > ANGLE_360 + threshold):
-                # For the case in which vec_tangent is not
-                # between vec_edge_act2d and vec_edge_prev2d.
-                # Probably using 3d edge vectors is
-                # more intuitive than 2d edge vectors.
-                    if corner_type == 'CONVEX':
-                        vec_tangent = -(vec_edge_act + vec_edge_prev)
-                    else:
-                        # CONCAVE
-                        vec_tangent = vec_edge_act + vec_edge_prev
-                    vec_tangent.normalize()
-            else:
+            if corner_type == 'FOLD' or corner_type == 'STRAIGHT':
                 vec_tangent = f_cross
+            else:
+                f_cross2d = f_cross - f_cross.project(vec_normal)
+                s, t = decompose_vector(
+                    f_cross2d, vec_edge_act2d, vec_edge_prev2d)
+                if s * t < threshold:
+                    # For the case in which vec_tangent is not
+                    # between vec_edge_act2d and vec_edge_prev2d.
+                    # Probably using 3d edge vectors is
+                    # more intuitive than 2d edge vectors.
+                        if corner_type == 'CONVEX':
+                            vec_tangent = -(vec_edge_act + vec_edge_prev)
+                        else:
+                            # CONCAVE
+                            vec_tangent = vec_edge_act + vec_edge_prev
+                        vec_tangent.normalize()
+                else:
+                    vec_tangent = f_cross
 
         if rotated:
             vec_edge_act = vec_edge_act_orig
