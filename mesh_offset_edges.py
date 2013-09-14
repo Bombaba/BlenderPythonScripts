@@ -188,6 +188,7 @@ class OffsetEdges(bpy.types.Operator):
             edge_loops += geom['edges']
             for ex_v in geom['verts']:
                 ex_edge = ex_v.link_edges[0]
+                delta = .0
                 if ex_edge.other_vert(ex_v) is v_start:
                     v_orig = v_start
                     for v, e in edge_chain:
@@ -368,6 +369,7 @@ class OffsetEdges(bpy.types.Operator):
 
     @staticmethod
     def skip_zero_length_edges(floop, normal=None, reverse=False):
+        floop_orig = floop
         if normal:
             normal = normal.normalized()
         skip_co = 0
@@ -381,6 +383,9 @@ class OffsetEdges(bpy.types.Operator):
         while length == 0:
             floop = (floop.link_loop_next if not reverse
                       else floop.link_loop_prev)
+            if floop is floop_orig:
+                # All edges is zero length
+                return None, None
             skip_co += 1
             length = floop.edge.calc_length()
             if length and normal:
@@ -584,6 +589,9 @@ class OffsetEdges(bpy.types.Operator):
             for floop in f.loops:
                 loop_act, skip_next_co = \
                     self.skip_zero_length_edges(floop, normal, reverse=False)
+                if loop_act is None:
+                    # All edges is zero length
+                    break
 
                 loop_prev = floop.link_loop_prev
                 loop_prev, skip_prev_co = \
