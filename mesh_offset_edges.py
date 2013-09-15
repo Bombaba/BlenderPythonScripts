@@ -475,7 +475,7 @@ class OffsetEdges(bpy.types.Operator):
                     break
         else:
             if co != 1:
-                return None
+                return False
 
         vec_edge = edge.verts[0].co - edge.verts[1].co
         vec_adj = adj_loop.calc_tangent()
