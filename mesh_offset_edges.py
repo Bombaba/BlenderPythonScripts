@@ -62,7 +62,7 @@ def decompose_vector(vec, vec_s, vec_t):
             t = (-vec.x * vec_s.x + vec.y * vec_s.z) / det_zx
     return s, t
 
-def get_vector(vec_edge_act, vec_edge_prev,
+def get_tangent(vec_edge_act, vec_edge_prev,
                f_normal_act, f_normal_prev=None, rotaxis=None,
                threshold=1.0e-4):
     if f_normal_act:
@@ -169,12 +169,12 @@ def get_vector(vec_edge_act, vec_edge_prev,
                 # between vec_edge_act2d and vec_edge_prev2d.
                 # Probably using 3d edge vectors is
                 # more intuitive than 2d edge vectors.
-                    if corner_type == 'CONVEX':
-                        vec_tangent = -(vec_edge_act + vec_edge_prev)
-                    else:
-                        # CONCAVE
-                        vec_tangent = vec_edge_act + vec_edge_prev
-                    vec_tangent.normalize()
+                if corner_type == 'CONVEX':
+                    vec_tangent = -(vec_edge_act + vec_edge_prev)
+                else:
+                    # CONCAVE
+                    vec_tangent = vec_edge_act + vec_edge_prev
+                vec_tangent.normalize()
             else:
                 vec_tangent = f_cross
 
@@ -668,17 +668,17 @@ class OffsetEdges(bpy.types.Operator):
                             # n1 and n2 are confronting
                             rotaxis = self.get_inner_vec(loop_act)
 
-                vectors = get_vector(
+                tangent = get_tangent(
                     vec_edge_act, vec_edge_prev, n1, n2, rotaxis, threshold)
 
                 if detect_hole and not direction_checked:
-                    hole = self.is_hole(loop_act, vectors[0])
+                    hole = self.is_hole(loop_act, tangent[0])
                     if hole is not None:
                         direction_checked = True
                         if hole:
                             width *= -1
 
-                move_vectors.append(vectors)
+                move_vectors.append(tangent)
 
             for floop, vecs in zip(f.loops, move_vectors):
                 vec_tan, factor_act, factor_prev = vecs
