@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 7),
+    "version": (0, 1, 8),
     "blender": (2, 68, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -78,6 +78,9 @@ class OffsetEdges(bpy.types.Operator):
     follow_face = bpy.props.BoolProperty(
         name="Follow Face", default=False,
         description="Offset along faces around")
+    detect_hole = bpy.props.BoolProperty(
+        name="Detect Hole", default=False,
+        description="Detecgt edges around holes and flip direction")
     flip = bpy.props.BoolProperty(
         name="Flip", default=False,
         description="Flip direction")
@@ -101,6 +104,9 @@ class OffsetEdges(bpy.types.Operator):
         layout.prop(self, 'width')
         layout.prop(self, 'flip')
         layout.prop(self, 'follow_face')
+
+        if self.follow_face:
+            layout.prop(self, 'detect_hole')
 
         for m in context.edit_object.modifiers:
             if m.type == 'MIRROR':
@@ -324,6 +330,30 @@ class OffsetEdges(bpy.types.Operator):
         else:
             inner_edge[vert] = most_inner
             return most_inner
+
+    def is_hole(self, floop, tangent):
+        edge = self.e_e_pairs[floop.edge]
+        side_faces = self.side_faces
+        co = 0
+        for f in edge.link_faces:
+            if f not in side_faces and not f.hide:
+                co += 1
+                adj_face = f
+                if f.select:
+                    break
+        else:
+            if co != 1:
+                return None
+
+        mid_vert = (edge.verts[0].co + edge.verts[1].co) / 2.0
+        vec_adj = adj_face.calc_center_bounds() - mid_vert
+        if vec_adj == ZERO_VEC:
+            return None
+        if vec_adj.dot(tangent) > .0:
+            # Hole
+            return True
+        else:
+            return False
 
     def clean_geometry(self, bm):
         bm.normal_update()
@@ -575,6 +605,7 @@ class OffsetEdges(bpy.types.Operator):
 
         follow_face = self.follow_face
         threshold = self.threshold
+        detect_hole = follow_face and self.detect_hole
         mirror_v_p_pairs = self.mirror_v_p_pairs
 
         for f in fs:
@@ -621,12 +652,12 @@ class OffsetEdges(bpy.types.Operator):
                 vectors = self.get_vector(
                     vec_edge_act, vec_edge_prev, n1, n2, rotaxis, threshold)
 
-                if follow_face and not direction_checked:
-                    vec_direct = self.get_inner_vec(loop_act)
-                    if vec_direct:
-                        if vectors[0].dot(vec_direct) > .0:
-                            width *= -1
+                if detect_hole and not direction_checked:
+                    hole = self.is_hole(loop_act, vectors[0])
+                    if hole is not None:
                         direction_checked = True
+                        if hole:
+                            width *= -1
 
                 move_vectors.append(vectors)
 
