@@ -345,8 +345,10 @@ class OffsetEdges(bpy.types.Operator):
             if co != 1:
                 return None
 
-        mid_vert = (edge.verts[0].co + edge.verts[1].co) / 2.0
-        vec_adj = adj_face.calc_center_bounds() - mid_vert
+        vec_edge = edge.verts[0].co - edge.verts[1].co
+        mid_edge = (edge.verts[0].co + edge.verts[1].co) / 2.0
+        vec_adj = adj_face.calc_center_bounds() - mid_edge
+        vec_adj -= vec_adj.project(vec_edge)
         if vec_adj == ZERO_VEC:
             return None
         if vec_adj.dot(tangent) > .0:
