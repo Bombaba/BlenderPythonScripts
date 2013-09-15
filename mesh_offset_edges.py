@@ -208,7 +208,7 @@ class OffsetEdges(bpy.types.Operator):
         name="Follow Face", default=False,
         description="Offset along faces around")
     detect_hole = bpy.props.BoolProperty(
-        name="Detect Hole", default=False,
+        name="Detect Hole", default=True,
         description="Detecgt edges around holes and flip direction")
     flip = bpy.props.BoolProperty(
         name="Flip", default=False,
@@ -354,9 +354,6 @@ class OffsetEdges(bpy.types.Operator):
         bmesh.ops.recalc_face_normals(bm, faces=side_faces)
         self.side_edges = side_edges = \
             [e.link_loops[0].link_loop_next.edge for e in offset_edges]
-
-        for f in side_faces:
-            f.select = True
 
         extended_verts = self.extended_verts
         mirror_v_p_pairs = self.mirror_v_p_pairs
@@ -504,6 +501,7 @@ class OffsetEdges(bpy.types.Operator):
             for f in img_faces:
                 for loop in f.loops:
                     side = loop.link_loop_radial_next.face
+                    side.select = True
                     direction = self.get_average_fnorm(loop)
                     if direction:
                         if side.normal.dot(direction) < .0:
