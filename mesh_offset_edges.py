@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 9),
+    "version": (0, 1, 10),
     "blender": (2, 68, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -360,6 +360,7 @@ class OffsetEdges(bpy.types.Operator):
 
         extended_verts = self.extended_verts
         mirror_v_p_pairs = self.mirror_v_p_pairs
+        mirror_v_p_pairs_new = dict()
         self.v_v_pairs = v_v_pairs = dict()  # keys is offset vert,
                                              # values is original vert.
         for e in side_edges:
@@ -375,7 +376,8 @@ class OffsetEdges(bpy.types.Operator):
             plane = mirror_v_p_pairs.get(v_orig)
             if plane:
                 # Offsetted vert should be on the mirror plane.
-                mirror_v_p_pairs[v_offset] = plane
+                mirror_v_p_pairs_new[v_offset] = plane
+        self.mirror_v_p_pairs = mirror_v_p_pairs_new
 
         self.img_faces = img_faces = bmesh.ops.edgeloop_fill(
             bm, edges=offset_edges, mat_nr=0, use_smooth=False)['faces']
@@ -583,25 +585,20 @@ class OffsetEdges(bpy.types.Operator):
                     mirror_planes.append((z, mthreshold))
         return mirror_planes
 
-    def apply_mirror(self, face):
+    def apply_mirror(self):
         # Crip or extend edges to the mirror planes
-        mirror_v_p_pairs = self.mirror_v_p_pairs
-        if not mirror_v_p_pairs:
-            return
-        extended_verts = self.extended_verts
-        for floop in face.loops:
-            vert = floop.vert
-            plane = mirror_v_p_pairs.get(vert)
-            if plane:
-                point = vert.co.to_4d()
-                if floop.link_loop_next.vert not in extended_verts:
-                    direction = vert.co - floop.link_loop_next.vert.co
-                else:
-                    direction = vert.co - floop.link_loop_prev.vert.co
+        side_edges, extended_verts = self.side_edges, self.extended_verts
+        for v, plane in self.mirror_v_p_pairs.items():
+            for e in v.link_edges:
+                if e in side_edges or e.other_vert(v) in extended_verts:
+                    continue
+                point = v.co.to_4d()
+                direction = e.verts[0].co - e.verts[1].co
                 direction = direction.to_4d()
                 direction[3] = .0
                 t = -plane.dot(point) / plane.dot(direction)
-                vert.co = (point + t * direction)[:3]
+                v.co = (point + t * direction)[:3]
+                break
 
     def execute(self, context):
         edit_object = context.edit_object
@@ -687,8 +684,8 @@ class OffsetEdges(bpy.types.Operator):
                 floop.vert.co += \
                     width * min(factor_act, factor_prev) * vec_tan
 
-            if self.mirror_modifier:
-                self.apply_mirror(f)
+        if self.mirror_modifier:
+            self.apply_mirror()
 
         self.clean_geometry(bm)
 
