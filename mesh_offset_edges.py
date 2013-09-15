@@ -583,6 +583,24 @@ class OffsetEdges(bpy.types.Operator):
                     mirror_planes.append((z, mthreshold))
         return mirror_planes
 
+    def apply_mirror(self, face):
+        # Crip or extend edges to the mirror planes
+        mirror_v_p_pairs = self.mirror_v_p_pairs
+        extended_verts = self.extended_verts
+        for floop in face.loops:
+            vert = floop.vert
+            plane = mirror_v_p_pairs.get(vert)
+            if plane:
+                point = vert.co.to_4d()
+                if floop.link_loop_next.vert not in extended_verts:
+                    direction = vert.co - floop.link_loop_next.vert.co
+                else:
+                    direction = vert.co - floop.link_loop_prev.vert.co
+                direction = direction.to_4d()
+                direction[3] = .0
+                t = -plane.dot(point) / plane.dot(direction)
+                vert.co = (point + t * direction)[:3]
+
     def execute(self, context):
         edit_object = context.edit_object
         me = edit_object.data
@@ -608,7 +626,6 @@ class OffsetEdges(bpy.types.Operator):
         follow_face = self.follow_face
         threshold = self.threshold
         detect_hole = follow_face and self.detect_hole
-        mirror_v_p_pairs = self.mirror_v_p_pairs
 
         for f in fs:
             width = self.width if not self.flip else -self.width
@@ -668,18 +685,8 @@ class OffsetEdges(bpy.types.Operator):
                 floop.vert.co += \
                     width * min(factor_act, factor_prev) * vec_tan
 
-            if mirror_v_p_pairs:
-                # Crip or extend edges to the mirror planes
-                for floop in f.loops:
-                    vert = floop.vert
-                    plane = mirror_v_p_pairs.get(vert)
-                    if plane:
-                        point = vert.co.to_4d()
-                        direct = vert.co - floop.link_loop_next.vert.co
-                        direct = direct.to_4d()
-                        direct[3] = .0
-                        t = -plane.dot(point) / plane.dot(direct)
-                        vert.co = (point + t * direct)[:3]
+            if self.mirror_v_p_pairs:
+                self.apply_mirror(f)
 
         self.clean_geometry(bm)
 
