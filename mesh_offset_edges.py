@@ -384,8 +384,6 @@ class OffsetEdges(bpy.types.Operator):
             for face in img_faces for fl in face.loops}
         self.average_fn = dict()  # edge:average_face_normal pairs.
                                   # Used later.
-        self.inner_edge = dict()  # edge:inner_edge pairs.
-                                  # Used later.
         for face in img_faces:
             #face.loops.index_update()
             for fl in face.loops:
@@ -423,11 +421,8 @@ class OffsetEdges(bpy.types.Operator):
 
     def get_inner_edge(self, floop):
         """Get most inner edge vector connecting to floop.vert"""
-        inner_edge  = self.inner_edge
         v_v_pairs = self.v_v_pairs
         vert = v_v_pairs[floop.vert]
-        if vert in inner_edge:
-            return inner_edge[vert]
 
         vec_base = v_v_pairs[floop.link_loop_next.vert].co - vert.co
         vec_base.normalize()
@@ -452,12 +447,7 @@ class OffsetEdges(bpy.types.Operator):
             elif dot < dot_min:
                 dot_min = dot
                 most_inner = vec_e
-        if most_inner_selected:
-            inner_edge[vert] = most_inner_selected
-            return most_inner_selected
-        else:
-            inner_edge[vert] = most_inner
-            return most_inner
+        return most_inner_selected or most_inner
 
     def is_hole(self, floop, tangent):
         edge = self.e_e_pairs[floop.edge]
