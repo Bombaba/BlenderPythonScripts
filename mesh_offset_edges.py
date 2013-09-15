@@ -421,7 +421,7 @@ class OffsetEdges(bpy.types.Operator):
             average_fn[edge] = None
             return None
 
-    def get_inner_vec(self, floop):
+    def get_inner_edge(self, floop):
         """Get most inner edge vector connecting to floop.vert"""
         inner_edge  = self.inner_edge
         v_v_pairs = self.v_v_pairs
@@ -445,7 +445,7 @@ class OffsetEdges(bpy.types.Operator):
             if vec_e == ZERO_VEC:
                 continue
             vec_e.normalize()
-            dot = abs(vec_e.dot(vec_base))
+            dot = vec_e.dot(vec_base)
             if e.select and dot < dot_min_selected:
                 dot_min_selected = dot
                 most_inner_selected = vec_e
@@ -663,7 +663,7 @@ class OffsetEdges(bpy.types.Operator):
                         angle = n1.angle(n2)
                         if angle > ANGLE_180 - threshold:
                             # n1 and n2 are confronting
-                            rotaxis = self.get_inner_vec(loop_act)
+                            rotaxis = self.get_inner_edge(loop_act)
 
                 tangent = get_tangent(
                     vec_edge_act, vec_edge_prev, n1, n2, rotaxis, threshold)
