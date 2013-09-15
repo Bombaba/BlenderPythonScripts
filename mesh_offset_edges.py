@@ -586,6 +586,8 @@ class OffsetEdges(bpy.types.Operator):
     def apply_mirror(self, face):
         # Crip or extend edges to the mirror planes
         mirror_v_p_pairs = self.mirror_v_p_pairs
+        if not mirror_v_p_pairs:
+            return
         extended_verts = self.extended_verts
         for floop in face.loops:
             vert = floop.vert
@@ -685,7 +687,7 @@ class OffsetEdges(bpy.types.Operator):
                 floop.vert.co += \
                     width * min(factor_act, factor_prev) * vec_tan
 
-            if self.mirror_v_p_pairs:
+            if self.mirror_modifier:
                 self.apply_mirror(f)
 
         self.clean_geometry(bm)
