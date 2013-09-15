@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 8),
+    "version": (0, 1, 9),
     "blender": (2, 68, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -464,10 +464,11 @@ class OffsetEdges(bpy.types.Operator):
         edge = self.e_e_pairs[floop.edge]
         side_faces = self.side_faces
         co = 0
-        for f in edge.link_faces:
+        for l in edge.link_loops:
+            f = l.face
             if f not in side_faces and not f.hide:
                 co += 1
-                adj_face = f
+                adj_loop = l
                 if f.select:
                     break
         else:
@@ -475,8 +476,7 @@ class OffsetEdges(bpy.types.Operator):
                 return None
 
         vec_edge = edge.verts[0].co - edge.verts[1].co
-        mid_edge = (edge.verts[0].co + edge.verts[1].co) / 2.0
-        vec_adj = adj_face.calc_center_bounds() - mid_edge
+        vec_adj = adj_loop.calc_tangent()
         vec_adj -= vec_adj.project(vec_edge)
         if vec_adj == ZERO_VEC:
             return None
