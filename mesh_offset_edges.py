@@ -464,11 +464,11 @@ class OffsetEdges(bpy.types.Operator):
         edge = self.e_e_pairs[floop.edge]
         side_faces = self.side_faces
         co = 0
-        for l in edge.link_loops:
-            f = l.face
+        for loop in edge.link_loops:
+            f = loop.face
             if f not in side_faces and not f.hide:
                 co += 1
-                adj_loop = l
+                adj_loop = loop
                 if f.select:
                     break
         else:
@@ -500,9 +500,9 @@ class OffsetEdges(bpy.types.Operator):
         # Align extruded face normals
         if self.geometry_mode == 'extrude':
             for f in img_faces:
-                for l in f.loops:
-                    side = l.link_loop_radial_next.face
-                    direction = self.get_average_fnorm(l)
+                for loop in f.loops:
+                    side = loop.link_loop_radial_next.face
+                    direction = self.get_average_fnorm(loop)
                     if direction:
                         if side.normal.dot(direction) < .0:
                             side.normal_flip()
