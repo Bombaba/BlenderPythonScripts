@@ -64,7 +64,7 @@ class OffsetEdges(bpy.types.Operator):
         description="Offset along faces around")
     detect_hole = bpy.props.BoolProperty(
         name="Detect Hole", default=True,
-        description="Detecgt edges around holes and flip direction")
+        description="Detect edges around holes and flip direction")
     flip = bpy.props.BoolProperty(
         name="Flip", default=False,
         description="Flip direction")
@@ -91,6 +91,7 @@ class OffsetEdges(bpy.types.Operator):
 
         if self.follow_face:
             layout.prop(self, 'detect_hole')
+            layout.prop(self, 'end_along_edge')
 
         for m in context.edit_object.modifiers:
             if m.type == 'MIRROR':
@@ -274,35 +275,32 @@ class OffsetEdges(bpy.types.Operator):
             average_fn[edge] = None
             return None
 
-    def get_inner_edge(self, floop):
-        """Get most inner edge vector connecting to floop.vert"""
-        v_v_pairs = self.v_v_pairs
-        vert = v_v_pairs[floop.vert]
-
-        vec_base = v_v_pairs[floop.link_loop_next.vert].co - vert.co
-        vec_base.normalize()
-
-        most_inner_selected = None
-        dot_min_selected = 1.0
-        most_inner = None
-        dot_min = 1.0
-
-        edge_loops, side_edges = self.edge_loops, self.side_edges
-        for e in vert.link_edges:
-            if e in edge_loops or e in side_edges or e.hide:
-                continue
-            vec_e = e.other_vert(vert).co - vert.co
-            if vec_e == ZERO_VEC:
-                continue
-            vec_e.normalize()
-            dot = vec_e.dot(vec_base)
-            if e.select and dot < dot_min_selected:
-                dot_min_selected = dot
-                most_inner_selected = vec_e
-            elif dot < dot_min:
-                dot_min = dot
-                most_inner = vec_e
-        return most_inner_selected or most_inner
+    def get_inner_vec(self, floop):
+        """Get inner edge vector connecting to floop.vert"""
+        side_faces = self.side_faces
+        edge = self.e_e_pairs[floop.edge]
+        adj_loop = None
+        co = 0
+        for loop in edge.link_loops:
+            f = loop.face
+            if f not in side_faces and not f.hide:
+                co += 1
+                adj_loop = loop
+                if f.select:
+                    break
+        else:
+            if co != 1:
+                return None
+        vert = self.v_v_pairs[floop.vert]
+        if adj_loop.vert is vert:
+            inner_edge = adj_loop.link_loop_prev.edge
+        else:
+            inner_edge = adj_loop.link_loop_next.edge
+        edge_vector = inner_edge.other_vert(vert).co - vert.co
+        if edge_vector == ZERO_VEC:
+            return None
+        edge_vector.normalize()
+        return edge_vector
 
     def is_hole(self, floop, tangent):
         edge = self.e_e_pairs[floop.edge]
@@ -480,8 +478,8 @@ class OffsetEdges(bpy.types.Operator):
             else:
                 f_normal_prev = None
 
+        vec_tangent = None
         f_cross = None
-        rotated = False
         if f_normal_act and f_normal_prev:
             f_angle = f_normal_act.angle(f_normal_prev)
             if threshold < f_angle < ANGLE_180 - threshold:
@@ -489,24 +487,11 @@ class OffsetEdges(bpy.types.Operator):
                 vec_normal.normalize()
                 f_cross = f_normal_act.cross(f_normal_prev)
                 f_cross.normalize()
-            elif f_angle > ANGLE_180:
-                # vec_edge and f_normal are slightly rotated
-                # in order to manage folding faces.
-                rotaxis = self.get_inner_edge(loop_act)
-                if rotaxis:
-                    vec_edge_act_orig = vec_edge_act.copy()
-                    vec_edge_prev_orig = vec_edge_prev.copy()
-
-                    rot_act = Quaternion(rotaxis, 2 * threshold)
-                    rot_prev = rot_act.inverted()
-                    vec_edge_act.rotate(rot_act)
-                    vec_edge_prev.rotate(rot_prev)
-                    f_normal_act.rotate(rot_act)
-                    f_normal_prev.rotate(rot_prev)
-
-                    vec_normal = f_normal_act + f_normal_prev
-                    vec_normal.normalize()
-                    rotated = True
+            elif f_angle > ANGLE_90:
+                inner = self.get_inner_vec(loop_act)
+                if inner:
+                    vec_tangent = -inner
+                    corner_type = 'FACE_FOLD'
                 else:
                     vec_normal = f_normal_act
             else:
@@ -523,42 +508,43 @@ class OffsetEdges(bpy.types.Operator):
                     # vec_edge is parallel to Z_UP
                     vec_normal = Y_UP.copy()
 
-        # 2d edge vectors are perpendicular to vec_normal
-        vec_edge_act2d = vec_edge_act - vec_edge_act.project(vec_normal)
-        vec_edge_act2d.normalize()
+        if vec_tangent is None:
+            # 2d edge vectors are perpendicular to vec_normal
+            vec_edge_act2d = vec_edge_act - vec_edge_act.project(vec_normal)
+            vec_edge_act2d.normalize()
 
-        vec_edge_prev2d = vec_edge_prev - vec_edge_prev.project(vec_normal)
-        vec_edge_prev2d.normalize()
+            vec_edge_prev2d = vec_edge_prev - vec_edge_prev.project(vec_normal)
+            vec_edge_prev2d.normalize()
 
-        angle2d = vec_edge_act2d.angle(vec_edge_prev2d)
-        if angle2d < threshold:
-            # folding corner
-            corner_type = 'FOLD'
-            vec_tangent = vec_edge_act2d
-            vec_angle2d = ANGLE_360
-        elif angle2d > ANGLE_180 - threshold:
-            # straight corner
-            corner_type = 'STRAIGHT'
-            vec_tangent = vec_edge_act2d.cross(vec_normal)
-            vec_angle2d = ANGLE_180
-        else:
-            direction = vec_edge_act2d.cross(vec_edge_prev2d).dot(vec_normal)
-            if direction > .0:
-                # convex corner
-                corner_type = 'CONVEX'
-                vec_tangent = -(vec_edge_act2d + vec_edge_prev2d)
-                vec_angle2d = angle2d
+            angle2d = vec_edge_act2d.angle(vec_edge_prev2d)
+            if angle2d < threshold:
+                # folding corner
+                corner_type = 'FOLD'
+                vec_tangent = vec_edge_act2d
+                vec_angle2d = ANGLE_360
+            elif angle2d > ANGLE_180 - threshold:
+                # straight corner
+                corner_type = 'STRAIGHT'
+                vec_tangent = vec_edge_act2d.cross(vec_normal)
+                vec_angle2d = ANGLE_180
             else:
-                # concave corner
-                corner_type = 'CONCAVE'
-                vec_tangent = vec_edge_act2d + vec_edge_prev2d
-                vec_angle2d = ANGLE_360 - angle2d
+                direction = vec_edge_act2d.cross(vec_edge_prev2d).dot(vec_normal)
+                if direction > .0:
+                    # convex corner
+                    corner_type = 'CONVEX'
+                    vec_tangent = -(vec_edge_act2d + vec_edge_prev2d)
+                    vec_angle2d = angle2d
+                else:
+                    # concave corner
+                    corner_type = 'CONCAVE'
+                    vec_tangent = vec_edge_act2d + vec_edge_prev2d
+                    vec_angle2d = ANGLE_360 - angle2d
 
-        if vec_tangent.dot(vec_normal):
-            # Make vec_tangent perpendicular to vec_normal
-            vec_tangent -= vec_tangent.project(vec_normal)
+            if vec_tangent.dot(vec_normal):
+                # Make vec_tangent perpendicular to vec_normal
+                vec_tangent -= vec_tangent.project(vec_normal)
 
-        vec_tangent.normalize()
+            vec_tangent.normalize()
 
         if f_cross:
             if vec_tangent.dot(f_cross) < .0:
@@ -583,10 +569,6 @@ class OffsetEdges(bpy.types.Operator):
                     vec_tangent.normalize()
                 else:
                     vec_tangent = f_cross
-
-        if rotated:
-            vec_edge_act = vec_edge_act_orig
-            vec_edge_prev = vec_edge_prev_orig
 
         if corner_type == 'FOLD':
             factor_act = factor_prev = 0
