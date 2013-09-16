@@ -590,7 +590,7 @@ class OffsetEdges(bpy.types.Operator):
                     vec_tangent.normalize()
                 else:
                     vec_tangent = f_cross
-        elif loop_act.vert in self.end_verts and self.end_align_edge:
+        elif self.end_align_edge and loop_act.vert in self.end_verts:
             inner = self.get_inner_vec(loop_act)
             if inner:
                 vec_tangent = \
