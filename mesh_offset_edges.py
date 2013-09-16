@@ -622,7 +622,8 @@ class OffsetEdges(bpy.types.Operator):
 
             move_vectors = []
 
-            direction_checked = False
+            co_hole_check = 5  # How many time edge is checked
+                               # whether around hole or not
             for floop in f.loops:
                 loop_act, skip_next_co = \
                     self.skip_zero_length_edges(floop, normal, reverse=False)
@@ -658,10 +659,11 @@ class OffsetEdges(bpy.types.Operator):
                 tangent = get_tangent(
                     vec_edge_act, vec_edge_prev, n1, n2, rotaxis, threshold)
 
-                if detect_hole and not direction_checked:
+                if detect_hole and co_hole_check:
+                    co_hole_check -= 1
                     hole = self.is_hole(loop_act, tangent[0])
                     if hole is not None:
-                        direction_checked = True
+                        co_hole_check = 0
                         if hole:
                             width *= -1
 
