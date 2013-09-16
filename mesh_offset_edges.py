@@ -65,9 +65,9 @@ class OffsetEdges(bpy.types.Operator):
     #detect_hole = bpy.props.BoolProperty(
     #    name="Detect Hole", default=True,
     #    description="Detect edges around holes and flip direction")
-    end_along_edge = bpy.props.BoolProperty(
-        name="End Along Edge", default=False,
-        description="Move end vertices move along inner edge")
+    end_align_edge = bpy.props.BoolProperty(
+        name="End Align Edge", default=False,
+        description="End vertices align edge")
     flip = bpy.props.BoolProperty(
         name="Flip", default=False,
         description="Flip direction")
@@ -90,7 +90,7 @@ class OffsetEdges(bpy.types.Operator):
 
         layout.prop(self, 'width')
         layout.prop(self, 'flip')
-        layout.prop(self, 'end_along_edge')
+        layout.prop(self, 'end_align_edge')
         layout.prop(self, 'follow_face')
 
         for m in context.edit_object.modifiers:
@@ -585,7 +585,7 @@ class OffsetEdges(bpy.types.Operator):
                     vec_tangent.normalize()
                 else:
                     vec_tangent = f_cross
-        elif loop_act.vert in self.end_verts and self.end_along_edge:
+        elif loop_act.vert in self.end_verts and self.end_align_edge:
             inner = self.get_inner_vec(loop_act)
             if inner:
                 vec_tangent = \
