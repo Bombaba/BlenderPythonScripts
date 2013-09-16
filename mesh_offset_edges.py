@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 11),
+    "version": (0, 1, 12),
     "blender": (2, 68, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -294,29 +294,6 @@ class OffsetEdges(bpy.types.Operator):
                 e_fn_pairs[e] = normal
             else:
                 e_fn_pairs[e] = None
-
-    #def get_inner_vec(self, floop, other_side=False):
-    #    """Get inner edge vector connecting to floop.vert"""
-    #    adj_loop = self.e_lp_pairs[floop.edge]
-    #    if len(adj_loop) != 1:
-    #        return None
-    #    adj_loop = adj_loop[0]
-
-    #    if not other_side:
-    #        vert = self.v_v_pairs[floop.vert]
-    #    else:
-    #        vert = self.v_v_pairs[floop.link_loop_next.vert]
-
-    #    if adj_loop.vert is vert:
-    #        inner_edge = adj_loop.link_loop_prev.edge
-    #    else:
-    #        inner_edge = adj_loop.link_loop_next.edge
-
-    #    edge_vector = inner_edge.other_vert(vert).co - vert.co
-    #    if edge_vector == ZERO_VEC:
-    #        return None
-    #    edge_vector.normalize()
-    #    return edge_vector
 
     def get_inner_vec(self, floop, threshold=1.0e-3):
         """Get inner edge vector connecting to floop.vert"""
