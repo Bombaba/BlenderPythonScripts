@@ -622,8 +622,8 @@ class OffsetEdges(bpy.types.Operator):
 
             move_vectors = []
 
-            co_hole_check = 5  # How many time edge is checked
-                               # whether around hole or not
+            co_hole_check = 5  # The largest number of test
+                               # whether edges are around a hole or not
             for floop in f.loops:
                 loop_act, skip_next_co = \
                     self.skip_zero_length_edges(floop, normal, reverse=False)
