@@ -65,6 +65,9 @@ class OffsetEdges(bpy.types.Operator):
     detect_hole = bpy.props.BoolProperty(
         name="Detect Hole", default=True,
         description="Detect edges around holes and flip direction")
+    end_along_edge = bpy.props.BoolProperty(
+        name="End Along Edge", default=False,
+        description="Move end vertices move along inner edge")
     flip = bpy.props.BoolProperty(
         name="Flip", default=False,
         description="Flip direction")
@@ -87,8 +90,8 @@ class OffsetEdges(bpy.types.Operator):
 
         layout.prop(self, 'width')
         layout.prop(self, 'flip')
+        layout.prop(self, 'end_along_edge')
         layout.prop(self, 'follow_face')
-
         if self.follow_face:
             layout.prop(self, 'detect_hole')
 
@@ -131,7 +134,7 @@ class OffsetEdges(bpy.types.Operator):
         selected_verts = set(v for e in selected_edges for v in e.verts)
 
         v_es_pairs = dict()
-        end_verts = set()
+        self.end_verts = end_verts= set()
         for v in selected_verts:
             selected_link_edges = \
                 tuple(e for e in v.link_edges if e in selected_edges)
@@ -159,6 +162,7 @@ class OffsetEdges(bpy.types.Operator):
         self.edge_loops = edge_loops = selected_edges
 
         self.extended_verts = extended_verts = set()
+        end_verts = end_verts.copy()
         while end_verts:
             v_start = end_verts.pop()
             e_start = v_es_pairs[v_start][0]
@@ -210,7 +214,7 @@ class OffsetEdges(bpy.types.Operator):
         self.side_edges = side_edges = \
             [e.link_loops[0].link_loop_next.edge for e in offset_edges]
 
-        extended_verts = self.extended_verts
+        extended_verts, end_verts = self.extended_verts, self.end_verts
         mirror_v_p_pairs = self.mirror_v_p_pairs
         mirror_v_p_pairs_new = dict()
         self.v_v_pairs = v_v_pairs = dict()  # keys is offset vert,
@@ -225,6 +229,8 @@ class OffsetEdges(bpy.types.Operator):
 
             if v_orig in extended_verts:
                 extended_verts.add(v_offset)
+            if v_orig in end_verts:
+                end_verts.add(v_offset)
             plane = mirror_v_p_pairs.get(v_orig)
             if plane:
                 # Offsetted vert should be on the mirror plane.
@@ -289,23 +295,53 @@ class OffsetEdges(bpy.types.Operator):
             else:
                 e_fn_pairs[e] = None
 
-    def get_inner_vec(self, floop):
-        """Get inner edge vector connecting to floop.vert"""
-        adj_loop = self.e_lp_pairs[floop.edge]
-        if len(adj_loop) != 1:
-            return None
-        adj_loop = adj_loop[0]
+    #def get_inner_vec(self, floop, other_side=False):
+    #    """Get inner edge vector connecting to floop.vert"""
+    #    adj_loop = self.e_lp_pairs[floop.edge]
+    #    if len(adj_loop) != 1:
+    #        return None
+    #    adj_loop = adj_loop[0]
 
+    #    if not other_side:
+    #        vert = self.v_v_pairs[floop.vert]
+    #    else:
+    #        vert = self.v_v_pairs[floop.link_loop_next.vert]
+
+    #    if adj_loop.vert is vert:
+    #        inner_edge = adj_loop.link_loop_prev.edge
+    #    else:
+    #        inner_edge = adj_loop.link_loop_next.edge
+
+    #    edge_vector = inner_edge.other_vert(vert).co - vert.co
+    #    if edge_vector == ZERO_VEC:
+    #        return None
+    #    edge_vector.normalize()
+    #    return edge_vector
+
+    def get_inner_vec(self, floop, threshold=1.0e-3):
+        """Get inner edge vector connecting to floop.vert"""
         vert = self.v_v_pairs[floop.vert]
-        if adj_loop.vert is vert:
-            inner_edge = adj_loop.link_loop_prev.edge
+        vec_edge = floop.edge.verts[0].co - floop.edge.verts[1].co
+        vec_edge.normalize()
+        side_edges, edge_loops = self.side_edges, self.edge_loops
+        co = 0
+        for e in vert.link_edges:
+            if e in side_edges or e in edge_loops or e.hide:
+                continue
+            vec_inner = e.other_vert(vert).co - vert.co
+            if vec_inner == ZERO_VEC:
+                continue
+            vec_inner.normalize()
+            if abs(vec_inner.dot(vec_edge)) > 1. - threshold:
+                continue
+            co += 1
+            if e.select:
+                break
         else:
-            inner_edge = adj_loop.link_loop_next.edge
-        edge_vector = inner_edge.other_vert(vert).co - vert.co
-        if edge_vector == ZERO_VEC:
-            return None
-        edge_vector.normalize()
-        return edge_vector
+            if co != 1:
+                return None
+        return vec_inner
+
 
     def is_hole(self, floop, tangent):
         edge = self.e_e_pairs[floop.edge]
@@ -344,7 +380,7 @@ class OffsetEdges(bpy.types.Operator):
                 side_lp = lp.link_loop_radial_next
                 if lp.vert is not side_lp.vert:
                     # imaginary face normal and side faces normal
-                    # should inconsistent.
+                    # should be inconsistent.
                     flip = not flip
 
                 if face in self.should_flip:
@@ -482,8 +518,8 @@ class OffsetEdges(bpy.types.Operator):
             else:
                 f_normal_prev = None
 
-        vec_tangent = None
         f_cross = None
+        vec_tangent = None
         if f_normal_act and f_normal_prev:
             f_angle = f_normal_act.angle(f_normal_prev)
             if threshold < f_angle < ANGLE_180 - threshold:
@@ -573,6 +609,11 @@ class OffsetEdges(bpy.types.Operator):
                     vec_tangent.normalize()
                 else:
                     vec_tangent = f_cross
+        elif loop_act.vert in self.end_verts and self.end_along_edge:
+            inner = self.get_inner_vec(loop_act)
+            if inner:
+                vec_tangent = \
+                    inner if inner.dot(vec_tangent) > .0 else -inner
 
         if corner_type == 'FOLD':
             factor_act = factor_prev = 0
