@@ -301,21 +301,21 @@ class OffsetEdges(bpy.types.Operator):
         side_edges, edge_loops = self.side_edges, self.edge_loops
         co = 0
         for e in vert.link_edges:
-            if e in side_edges or e in edge_loops or e.hide:
+            if (e in side_edges or e in edge_loops or e.hide
+               or e.calc_length() == .0):
                 continue
-            vec_inner = e.other_vert(vert).co - vert.co
-            if vec_inner == ZERO_VEC:
-                continue
-            vec_inner.normalize()
-            if abs(vec_inner.dot(vec_edge)) > 1. - threshold:
-                continue
+            inner = e
             co += 1
             if e.select:
                 break
         else:
             if co != 1:
                 return None
-        return vec_inner
+        vec_inner = (inner.other_vert(vert).co - vert.co).normalized()
+        if abs(vec_inner.dot(vec_edge)) > 1. - threshold:
+            return None
+        else:
+            return vec_inner
 
     def is_hole(self, floop, tangent):
         edge = self.e_e_pairs[floop.edge]
