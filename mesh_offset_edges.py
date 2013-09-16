@@ -79,6 +79,10 @@ class OffsetEdges(bpy.types.Operator):
         name="Threshold", default=1.0e-4, step=1.0e-5,
         description="Angle threshold which determines folding edges",
         options={'HIDDEN'})
+    limit_hole_check = bpy.props.IntProperty(
+        name="Limit Hole Check", default=5, min=0,
+        description="Limit number of hole check per edge loop",
+        options={'HIDDEN'})
 
     @classmethod
     def poll(self, context):
@@ -510,7 +514,6 @@ class OffsetEdges(bpy.types.Operator):
                 else:
                     vec_tangent = vec_edge_act.cross(f_normal_act)
                     vec_tangent.normalize()
-                    vec_normal = f_normal_act
                 corner_type = 'FACE_FOLD'
             else:
                 vec_normal = f_normal_act
@@ -635,8 +638,7 @@ class OffsetEdges(bpy.types.Operator):
             width = self.width if not self.flip else -self.width
             normal = f.normal if not follow_face else None
             move_vectors = []
-            co_hole_check = 5  # The largest number of test
-                               # whether edges are around a hole or not
+            co_hole_check = self.limit_hole_check
             for floop in f.loops:
                 loop_act, skip_next_co = \
                     self.skip_zero_length_edges(floop, normal, reverse=False)
