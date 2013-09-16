@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 10),
+    "version": (0, 1, 11),
     "blender": (2, 68, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -91,7 +91,6 @@ class OffsetEdges(bpy.types.Operator):
 
         if self.follow_face:
             layout.prop(self, 'detect_hole')
-            layout.prop(self, 'end_along_edge')
 
         for m in context.edit_object.modifiers:
             if m.type == 'MIRROR':
@@ -238,59 +237,65 @@ class OffsetEdges(bpy.types.Operator):
         self.e_e_pairs = {
             fl.edge: fl.link_loop_radial_next.link_loop_next.link_loop_next.edge
             for face in img_faces for fl in face.loops}
-        self.average_fn = dict()  # edge:average_face_normal pairs.
-                                  # Used later.
-        for face in img_faces:
-            #face.loops.index_update()
-            for fl in face.loops:
-                fn = self.get_average_fnorm(fl)
-                if fn and face.normal.dot(fn) < .0:
+
+        if self.follow_face:
+            self.e_lp_pairs = e_lp_pairs = dict()
+            for e_offset, e_orig in self.e_e_pairs.items():
+                t = tuple(loop for loop in e_orig.link_loops
+                          if (loop.face.select
+                              and loop.face not in side_faces
+                              and not loop.face.hide
+                              and loop.face.normal != ZERO_VEC))
+                if t:
+                    e_lp_pairs[e_offset] = t
+                    continue
+                t = tuple(loop for loop in e_orig.link_loops
+                          if (loop.face not in side_faces
+                              and not loop.face.hide
+                              and loop.face.normal != ZERO_VEC))
+                e_lp_pairs[e_offset] = t or tuple()
+
+            # Calculate normals
+            self.calc_average_fnorm()
+            e_fn_pairs = self.e_fn_pairs
+            for face in img_faces:
+                #face.loops.index_update()
+                for fl in face.loops:
+                    fn = e_fn_pairs[fl.edge]
+                    if fn:
+                        if face.normal.dot(fn) < .0:
+                            face.normal_flip()
+                        break
+        else:
+            for face in img_faces:
+                if face.normal[2] < .0:
                     face.normal_flip()
-                    break
+
         return img_faces
 
-    def get_average_fnorm(self, floop):
-        edge = floop.edge
-        average_fn = self.average_fn
-        if edge in average_fn:
-            return average_fn[edge]
+    def calc_average_fnorm(self):
+        self.e_fn_pairs = e_fn_pairs = dict()
+        # edge:average_face_normal pairs.
+        e_lp_pairs = self.e_lp_pairs
 
-        side_faces = self.side_faces
-        co = 0
-        normal = Vector()
-        for f in self.e_e_pairs[edge].link_faces:
-            if (f not in side_faces and not f.hide
-               and f.normal != ZERO_VEC):
-                if f.select:
-                    average_fn[edge] = f.normal.copy()
-                    return average_fn[edge]
-                else:
-                    normal += f.normal
-                    co += 1
-        if co:
-            normal.normalize()
-            average_fn[edge] = normal
-            return average_fn[edge]
-        else:
-            average_fn[edge] = None
-            return None
+        for e in self.offset_edges:
+            loops = e_lp_pairs[e]
+            if loops:
+                normal = Vector()
+                for lp in loops:
+                    normal += lp.face.normal
+                normal.normalize()
+                e_fn_pairs[e] = normal
+            else:
+                e_fn_pairs[e] = None
 
     def get_inner_vec(self, floop):
         """Get inner edge vector connecting to floop.vert"""
-        side_faces = self.side_faces
-        edge = self.e_e_pairs[floop.edge]
-        adj_loop = None
-        co = 0
-        for loop in edge.link_loops:
-            f = loop.face
-            if f not in side_faces and not f.hide:
-                co += 1
-                adj_loop = loop
-                if f.select:
-                    break
-        else:
-            if co != 1:
-                return None
+        adj_loop = self.e_lp_pairs[floop.edge]
+        if len(adj_loop) != 1:
+            return None
+        adj_loop = adj_loop[0]
+
         vert = self.v_v_pairs[floop.vert]
         if adj_loop.vert is vert:
             inner_edge = adj_loop.link_loop_prev.edge
@@ -304,18 +309,10 @@ class OffsetEdges(bpy.types.Operator):
 
     def is_hole(self, floop, tangent):
         edge = self.e_e_pairs[floop.edge]
-        side_faces = self.side_faces
-        co = 0
-        for loop in edge.link_loops:
-            f = loop.face
-            if f not in side_faces and not f.hide:
-                co += 1
-                adj_loop = loop
-                if f.select:
-                    break
-        else:
-            if co != 1:
-                return None
+        adj_loop = self.e_lp_pairs[floop.edge]
+        if len(adj_loop) != 1:
+            return None
+        adj_loop = adj_loop[0]
 
         vec_edge = edge.verts[0].co - edge.verts[1].co
         vec_adj = adj_loop.calc_tangent()
@@ -339,18 +336,25 @@ class OffsetEdges(bpy.types.Operator):
         extended_verts = self.extended_verts
         v_v_pairs = self.v_v_pairs
 
-        # Align extruded face normals
         if self.geometry_mode == 'extrude':
-            for f in img_faces:
-                for loop in f.loops:
-                    side = loop.link_loop_radial_next.face
-                    side.select = True
-                    direction = self.get_average_fnorm(loop)
-                    if direction:
-                        if side.normal.dot(direction) < .0:
-                            side.normal_flip()
-                    elif side.normal.dot(Z_UP) < .0:
-                            side.normal_flip()
+            for face in img_faces:
+                flip = True if self.flip else False
+
+                lp = face.loops[0]
+                side_lp = lp.link_loop_radial_next
+                if lp.vert is not side_lp.vert:
+                    # imaginary face normal and side faces normal
+                    # should inconsistent.
+                    flip = not flip
+
+                if face in self.should_flip:
+                    flip = not flip
+
+                if flip:
+                    sides = (
+                        lp.link_loop_radial_next.face for lp in face.loops)
+                    for sf in sides:
+                        sf.normal_flip()
 
         bmesh.ops.delete(bm, geom=img_faces, context=1)
 
@@ -599,10 +603,17 @@ class OffsetEdges(bpy.types.Operator):
             return {'CANCELLED'}
 
         fs = self.create_geometry(bm, e_loops)
+        self.should_flip = set()  # includes faces, side faces around which
+                                  # should flip its normal
+                                  # later in clean_geometry()
 
         follow_face = self.follow_face
+        if follow_face:
+            e_fn_pairs = self.e_fn_pairs
+            detect_hole = self.detect_hole
+        else:
+            detect_hole = False
         threshold = self.threshold
-        detect_hole = follow_face and self.detect_hole
 
         for f in fs:
             width = self.width if not self.flip else -self.width
@@ -624,8 +635,8 @@ class OffsetEdges(bpy.types.Operator):
                 if not follow_face:
                     n1, n2 = None, None
                 else:
-                    n1 = self.get_average_fnorm(loop_act)
-                    n2 = self.get_average_fnorm(loop_prev)
+                    n1 = e_fn_pairs[loop_act.edge]
+                    n2 = e_fn_pairs[loop_prev.edge]
 
                 tangent = self.get_tangent(
                     loop_act, loop_prev, n1, n2, threshold)
@@ -637,6 +648,8 @@ class OffsetEdges(bpy.types.Operator):
                         co_hole_check = 0
                         if hole:
                             width *= -1
+                            # side face normals should be flipped
+                            self.should_flip.add(f)
 
                 move_vectors.append(tangent)
 
