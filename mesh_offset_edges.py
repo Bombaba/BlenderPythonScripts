@@ -507,9 +507,11 @@ class OffsetEdges(bpy.types.Operator):
                 inner = self.get_inner_vec(loop_act)
                 if inner:
                     vec_tangent = -inner
-                    corner_type = 'FACE_FOLD'
                 else:
+                    vec_tangent = vec_edge_act.cross(f_normal_act)
+                    vec_tangent.normalize()
                     vec_normal = f_normal_act
+                corner_type = 'FACE_FOLD'
             else:
                 vec_normal = f_normal_act
         elif f_normal_act or f_normal_prev:
