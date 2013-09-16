@@ -62,9 +62,9 @@ class OffsetEdges(bpy.types.Operator):
     follow_face = bpy.props.BoolProperty(
         name="Follow Face", default=False,
         description="Offset along faces around")
-    detect_hole = bpy.props.BoolProperty(
-        name="Detect Hole", default=True,
-        description="Detect edges around holes and flip direction")
+    #detect_hole = bpy.props.BoolProperty(
+    #    name="Detect Hole", default=True,
+    #    description="Detect edges around holes and flip direction")
     end_along_edge = bpy.props.BoolProperty(
         name="End Along Edge", default=False,
         description="Move end vertices move along inner edge")
@@ -92,8 +92,6 @@ class OffsetEdges(bpy.types.Operator):
         layout.prop(self, 'flip')
         layout.prop(self, 'end_along_edge')
         layout.prop(self, 'follow_face')
-        if self.follow_face:
-            layout.prop(self, 'detect_hole')
 
         for m in context.edit_object.modifiers:
             if m.type == 'MIRROR':
@@ -319,7 +317,6 @@ class OffsetEdges(bpy.types.Operator):
                 return None
         return vec_inner
 
-
     def is_hole(self, floop, tangent):
         edge = self.e_e_pairs[floop.edge]
         adj_loop = self.e_lp_pairs[floop.edge]
@@ -350,6 +347,8 @@ class OffsetEdges(bpy.types.Operator):
         v_v_pairs = self.v_v_pairs
 
         if self.geometry_mode == 'extrude':
+            for f in side_faces:
+                f.select = True
             for face in img_faces:
                 flip = True if self.flip else False
 
@@ -628,14 +627,11 @@ class OffsetEdges(bpy.types.Operator):
         follow_face = self.follow_face
         if follow_face:
             e_fn_pairs = self.e_fn_pairs
-            detect_hole = self.detect_hole
-        else:
-            detect_hole = False
         threshold = self.threshold
 
         for f in fs:
             width = self.width if not self.flip else -self.width
-            normal = f.normal if not self.follow_face else None
+            normal = f.normal if not follow_face else None
             move_vectors = []
             co_hole_check = 5  # The largest number of test
                                # whether edges are around a hole or not
@@ -659,7 +655,7 @@ class OffsetEdges(bpy.types.Operator):
                 tangent = self.get_tangent(
                     loop_act, loop_prev, n1, n2, threshold)
 
-                if detect_hole and co_hole_check:
+                if follow_face and co_hole_check:
                     co_hole_check -= 1
                     hole = self.is_hole(loop_act, tangent[0])
                     if hole is not None:
