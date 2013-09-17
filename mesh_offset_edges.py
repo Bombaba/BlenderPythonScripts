@@ -35,7 +35,9 @@ import math
 from math import sin, pi
 import bpy
 import bmesh
+from bmesh.types import BMVert, BMEdge, BMFace, BMLoop
 from mathutils import Vector, Quaternion
+from time import perf_counter
 
 X_UP = Vector((1.0, .0, .0))
 Y_UP = Vector((.0, 1.0, .0))
@@ -133,24 +135,39 @@ class OffsetEdges(bpy.types.Operator):
                         "No edges selected.")
             return None
 
-        selected_verts = set(v for e in selected_edges for v in e.verts)
-
+        #ti = perf_counter()
         v_es_pairs = dict()
-        self.end_verts = end_verts= set()
-        for v in selected_verts:
-            selected_link_edges = \
-                tuple(e for e in v.link_edges if e in selected_edges)
-            len_link = len(selected_link_edges)
+        self.end_verts = end_verts= set(v for e in selected_edges for v in e.verts)
+        for e in selected_edges:
+            for v in e.verts:
+                edges = v_es_pairs.get(v)
+                if edges is None:
+                    v_es_pairs[v] = e
+                elif isinstance(edges, BMEdge):
+                    v_es_pairs[v] = (edges, e)
+                    end_verts.remove(v)
+                else:
+                    self.report({'WARNING'},
+                                "Select non-branching edge chains")
+                    return None
+        #print("Time_v_es_pair:", perf_counter() - ti)
 
-            if len_link == 2:
-                v_es_pairs[v] = selected_link_edges
-            elif len_link == 1:
-                v_es_pairs[v] = selected_link_edges
-                end_verts.add(v)
-            elif len_link >= 3:
-                self.report({'WARNING'},
-                            "Select non-branching edge chains")
-                return None
+        if self.follow_face:
+            self.e_lp_pairs = e_lp_pairs = dict()
+            #ti = perf_counter()
+            for e in selected_edges:
+                loops = []
+                for lp in e.link_loops:
+                    f = lp.face
+                    if not f.hide and f.normal != ZERO_VEC:
+                        if f.select:
+                            e_lp_pairs[e] = (lp,)
+                            break
+                        else:
+                            loops.append(lp)
+                else:
+                    e_lp_pairs[e] = loops
+            #print("Time_e_lp_pair:", perf_counter() - ti)
 
         if mirror_planes:
             for v in end_verts:
@@ -161,13 +178,13 @@ class OffsetEdges(bpy.types.Operator):
                             mirror_v_p_pairs[v] = plane
                             break
 
-        self.edge_loops = edge_loops = selected_edges
+        edge_loops = selected_edges
 
         self.extended_verts = extended_verts = set()
         end_verts = end_verts.copy()
         while end_verts:
             v_start = end_verts.pop()
-            e_start = v_es_pairs[v_start][0]
+            e_start = v_es_pairs[v_start]
             edge_chain = [(v_start, e_start)]
             v_current = e_start.other_vert(v_start)
             e_prev = e_start
@@ -201,29 +218,35 @@ class OffsetEdges(bpy.types.Operator):
                 ex_v.co += delta
             edge_loops.append(bm.edges.new(geom['verts']))
 
+        self.edge_loops_set = set(edge_loops)
+
         return edge_loops
 
     def create_geometry(self, bm, e_loops):
         geom_extruded = bmesh.ops.extrude_edge_only(bm, edges=e_loops)['geom']
 
         self.offset_verts = offset_verts = \
-            [e for e in geom_extruded if isinstance(e, bmesh.types.BMVert)]
+            [e for e in geom_extruded if isinstance(e, BMVert)]
         self.offset_edges = offset_edges = \
-            [e for e in geom_extruded if isinstance(e, bmesh.types.BMEdge)]
+            [e for e in geom_extruded if isinstance(e, BMEdge)]
         self.side_faces = side_faces = \
-            [f for f in geom_extruded if isinstance(f, bmesh.types.BMFace)]
+            [f for f in geom_extruded if isinstance(f, BMFace)]
         bmesh.ops.recalc_face_normals(bm, faces=side_faces)
         self.side_edges = side_edges = \
             [e.link_loops[0].link_loop_next.edge for e in offset_edges]
+        self.side_edges_set = set(side_edges) # Used in get_inner_vec()
+                                              # and apply_mirror()
 
         extended_verts, end_verts = self.extended_verts, self.end_verts
         mirror_v_p_pairs = self.mirror_v_p_pairs
         mirror_v_p_pairs_new = dict()
         self.v_v_pairs = v_v_pairs = dict()  # keys is offset vert,
                                              # values is original vert.
+        #ti = perf_counter()
+        offset_verts_set = set(offset_verts)
         for e in side_edges:
             v1, v2 = e.verts
-            if v1 in offset_verts:
+            if v1 in offset_verts_set:
                 v_offset, v_orig = v1, v2
             else:
                 v_offset, v_orig = v2, v1
@@ -233,36 +256,27 @@ class OffsetEdges(bpy.types.Operator):
                 extended_verts.add(v_offset)
             if v_orig in end_verts:
                 end_verts.add(v_offset)
+                end_verts.remove(v_orig)
             plane = mirror_v_p_pairs.get(v_orig)
             if plane:
                 # Offsetted vert should be on the mirror plane.
                 mirror_v_p_pairs_new[v_offset] = plane
         self.mirror_v_p_pairs = mirror_v_p_pairs_new
+        #print("Time_v_v_pairs:", perf_counter() - ti)
 
         self.img_faces = img_faces = bmesh.ops.edgeloop_fill(
             bm, edges=offset_edges, mat_nr=0, use_smooth=False)['faces']
 
-        self.e_e_pairs = {
+        self.e_e_pairs = e_e_pairs = {
             fl.edge: fl.link_loop_radial_next.link_loop_next.link_loop_next.edge
             for face in img_faces for fl in face.loops}
 
+        #ti = perf_counter()
         if self.follow_face:
-            self.e_lp_pairs = e_lp_pairs = dict()
-            for e_offset, e_orig in self.e_e_pairs.items():
-                t = tuple(loop for loop in e_orig.link_loops
-                          if (loop.face.select
-                              and loop.face not in side_faces
-                              and not loop.face.hide
-                              and loop.face.normal != ZERO_VEC))
-                if t:
-                    e_lp_pairs[e_offset] = t
-                    continue
-                t = tuple(loop for loop in e_orig.link_loops
-                          if (loop.face not in side_faces
-                              and not loop.face.hide
-                              and loop.face.normal != ZERO_VEC))
-                e_lp_pairs[e_offset] = t or tuple()
-
+            e_lp_pairs = self.e_lp_pairs
+            self.e_lp_pairs = {
+                e_offset: e_lp_pairs.get(e_orig, tuple())
+                for e_offset, e_orig in e_e_pairs.items()}
             # Calculate normals
             self.calc_average_fnorm()
             e_fn_pairs = self.e_fn_pairs
@@ -278,6 +292,7 @@ class OffsetEdges(bpy.types.Operator):
             for face in img_faces:
                 if face.normal[2] < .0:
                     face.normal_flip()
+        #print("Time_calc_average_fnorm():", perf_counter() - ti)
 
         return img_faces
 
@@ -302,7 +317,7 @@ class OffsetEdges(bpy.types.Operator):
         vert = self.v_v_pairs[floop.vert]
         vec_edge = floop.edge.verts[0].co - floop.edge.verts[1].co
         vec_edge.normalize()
-        side_edges, edge_loops = self.side_edges, self.edge_loops
+        side_edges, edge_loops = self.side_edges_set, self.edge_loops_set
         co = 0
         for e in vert.link_edges:
             if (e in side_edges or e in edge_loops or e.hide
@@ -448,7 +463,7 @@ class OffsetEdges(bpy.types.Operator):
 
     def apply_mirror(self):
         # Crip or extend edges to the mirror planes
-        side_edges, extended_verts = self.side_edges, self.extended_verts
+        side_edges, extended_verts = self.side_edges_set, self.extended_verts
         for v, plane in self.mirror_v_p_pairs.items():
             for e in v.link_edges:
                 if e in side_edges or e.other_vert(v) in extended_verts:
@@ -461,26 +476,26 @@ class OffsetEdges(bpy.types.Operator):
                 v.co = (point + t * direction)[:3]
                 break
 
-    @staticmethod
-    def decompose_vector(vec, vec_s, vec_t):
-        det_xy = vec_s.x * vec_t.y - vec_s.y * vec_t.x
-        if det_xy:
-            s = (vec.x * vec_t.y - vec.y * vec_t.x) / det_xy
-            t = (-vec.x * vec_s.y + vec.y * vec_s.x) / det_xy
-        else:
-            det_yz = vec_s.y * vec_t.z - vec_s.z * vec_t.y
-            if det_yz:
-                s = (vec.x * vec_t.z - vec.y * vec_t.y) / det_yz
-                t = (-vec.x * vec_s.z + vec.y * vec_s.y) / det_yz
-            else:
-                det_zx = vec_s.z * vec_t.x - vec_s.x * vec_t.z
-                s = (vec.x * vec_t.x - vec.y * vec_t.z) / det_zx
-                t = (-vec.x * vec_s.x + vec.y * vec_s.z) / det_zx
-        return s, t
 
     def get_tangent(self, loop_act, loop_prev,
                     f_normal_act=None, f_normal_prev=None,
-                    threshold=1.0e-4):
+                    threshold=1.0e-4, end_align=False, end_verts=None):
+        def decompose_vector(vec, vec_s, vec_t):
+            det_xy = vec_s.x * vec_t.y - vec_s.y * vec_t.x
+            if det_xy:
+                s = (vec.x * vec_t.y - vec.y * vec_t.x) / det_xy
+                t = (-vec.x * vec_s.y + vec.y * vec_s.x) / det_xy
+            else:
+                det_yz = vec_s.y * vec_t.z - vec_s.z * vec_t.y
+                if det_yz:
+                    s = (vec.x * vec_t.z - vec.y * vec_t.y) / det_yz
+                    t = (-vec.x * vec_s.z + vec.y * vec_s.y) / det_yz
+                else:
+                    det_zx = vec_s.z * vec_t.x - vec_s.x * vec_t.z
+                    s = (vec.x * vec_t.x - vec.y * vec_t.z) / det_zx
+                    t = (-vec.x * vec_s.x + vec.y * vec_s.z) / det_zx
+            return s, t
+
         vec_edge_act = loop_act.link_loop_next.vert.co - loop_act.vert.co
         vec_edge_act.normalize()
 
@@ -575,7 +590,7 @@ class OffsetEdges(bpy.types.Operator):
                 vec_tangent = f_cross
             else:
                 f_cross2d = f_cross - f_cross.project(vec_normal)
-                s, t = self.decompose_vector(
+                s, t = decompose_vector(
                     f_cross2d, vec_edge_act2d, vec_edge_prev2d)
                 if s * t < threshold:
                     # For the case in which vec_tangent is not
@@ -590,7 +605,7 @@ class OffsetEdges(bpy.types.Operator):
                     vec_tangent.normalize()
                 else:
                     vec_tangent = f_cross
-        elif self.end_align_edge and loop_act.vert in self.end_verts:
+        elif end_align and loop_act.vert in end_verts:
             inner = self.get_inner_vec(loop_act)
             if inner:
                 vec_tangent = \
@@ -605,6 +620,7 @@ class OffsetEdges(bpy.types.Operator):
         return vec_tangent, factor_act, factor_prev
 
     def execute(self, context):
+        #ti_all = perf_counter()
         edit_object = context.edit_object
         me = edit_object.data
         #bm = bmesh.from_edit_mesh(me)  # This method causes blender crash
@@ -618,22 +634,32 @@ class OffsetEdges(bpy.types.Operator):
         if self.mirror_modifier:
             mirror_planes = self.get_mirror_planes(edit_object)
 
+        #ti = perf_counter()
         e_loops = self.create_edgeloops(bm, mirror_planes)
         if e_loops is None:
             bm.free()
             bpy.ops.object.editmode_toggle()
             return {'CANCELLED'}
+        #print("Time1:", perf_counter() - ti)
 
+        #ti = perf_counter()
         fs = self.create_geometry(bm, e_loops)
-        self.should_flip = set()  # includes faces, side faces around which
-                                  # should flip its normal
-                                  # later in clean_geometry()
+        #print("Time2:", perf_counter() - ti)
+        self.should_flip = should_flip =set()
+        # includes faces, side faces around which should flip its normal
+        # later in clean_geometry()
 
+        # using self is slow, so take off self
         follow_face = self.follow_face
         if follow_face:
             e_fn_pairs = self.e_fn_pairs
         threshold = self.threshold
+        skip_zero_length_edges = self.skip_zero_length_edges
+        get_tangent = self.get_tangent
+        end_align, end_verts = self.end_align_edge, self.end_verts
+        is_hole = self.is_hole
 
+        #ti = perf_counter()
         for f in fs:
             width = self.width if not self.flip else -self.width
             normal = f.normal if not follow_face else None
@@ -641,14 +667,14 @@ class OffsetEdges(bpy.types.Operator):
             co_hole_check = self.limit_hole_check
             for floop in f.loops:
                 loop_act, skip_next_co = \
-                    self.skip_zero_length_edges(floop, normal, reverse=False)
+                    skip_zero_length_edges(floop, normal, reverse=False)
                 if loop_act is None:
                     # All edges is zero length
                     break
 
                 loop_prev = floop.link_loop_prev
                 loop_prev, skip_prev_co = \
-                    self.skip_zero_length_edges(loop_prev, normal, reverse=True)
+                    skip_zero_length_edges(loop_prev, normal, reverse=True)
 
                 if not follow_face:
                     n1, n2 = None, None
@@ -656,18 +682,19 @@ class OffsetEdges(bpy.types.Operator):
                     n1 = e_fn_pairs[loop_act.edge]
                     n2 = e_fn_pairs[loop_prev.edge]
 
-                tangent = self.get_tangent(
-                    loop_act, loop_prev, n1, n2, threshold)
+                tangent = get_tangent(
+                    loop_act, loop_prev, n1, n2, threshold,
+                    end_align, end_verts)
 
                 if follow_face and co_hole_check:
                     co_hole_check -= 1
-                    hole = self.is_hole(loop_act, tangent[0])
+                    hole = is_hole(loop_act, tangent[0])
                     if hole is not None:
                         co_hole_check = 0
                         if hole:
                             width *= -1
                             # side face normals should be flipped
-                            self.should_flip.add(f)
+                            should_flip.add(f)
 
                 move_vectors.append(tangent)
 
@@ -675,6 +702,7 @@ class OffsetEdges(bpy.types.Operator):
                 vec_tan, factor_act, factor_prev = vecs
                 floop.vert.co += \
                     width * min(factor_act, factor_prev) * vec_tan
+        #print("Time3:", perf_counter() - ti)
 
         if self.mirror_modifier:
             self.apply_mirror()
@@ -685,6 +713,7 @@ class OffsetEdges(bpy.types.Operator):
         bm.to_mesh(me)
         bm.free()
         bpy.ops.object.editmode_toggle()
+        #print("*********TIME_ALL:", perf_counter() - ti_all)
         return {'FINISHED'}
 
     def invoke(self, context, event):
