@@ -137,7 +137,9 @@ class OffsetEdges(bpy.types.Operator):
 
         #ti = perf_counter()
         v_es_pairs = dict()
-        self.end_verts = end_verts= set(v for e in selected_edges for v in e.verts)
+        self.selected_verts = selected_verts= \
+            set(v for e in selected_edges for v in e.verts)
+        self.end_verts = end_verts= selected_verts.copy()
         for e in selected_edges:
             for v in e.verts:
                 edges = v_es_pairs.get(v)
@@ -197,9 +199,11 @@ class OffsetEdges(bpy.types.Operator):
             end_verts.remove(v_current)
 
             geom = bmesh.ops.extrude_vert_indiv(bm, verts=[v_start, v_current])
-            extended_verts.update(geom['verts'])
+            ex_verts = geom['verts']
+            selected_verts.update(ex_verts)
+            extended_verts.update(ex_verts)
             edge_loops += geom['edges']
-            for ex_v in geom['verts']:
+            for ex_v in ex_verts:
                 ex_edge = ex_v.link_edges[0]
                 delta = .0
                 if ex_edge.other_vert(ex_v) is v_start:
@@ -243,13 +247,13 @@ class OffsetEdges(bpy.types.Operator):
         self.v_v_pairs = v_v_pairs = dict()  # keys is offset vert,
                                              # values is original vert.
         #ti = perf_counter()
-        offset_verts_set = set(offset_verts)
+        orig_verts = self.selected_verts
         for e in side_edges:
             v1, v2 = e.verts
-            if v1 in offset_verts_set:
-                v_offset, v_orig = v1, v2
-            else:
+            if v1 in orig_verts:
                 v_offset, v_orig = v2, v1
+            else:
+                v_offset, v_orig = v1, v2
             v_v_pairs[v_offset] = v_orig
 
             if v_orig in extended_verts:
