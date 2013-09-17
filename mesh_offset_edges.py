@@ -665,16 +665,25 @@ class OffsetEdges(bpy.types.Operator):
             normal = f.normal if not follow_face else None
             move_vectors = []
             co_hole_check = self.limit_hole_check
+            loop_act = loop_prev = None
             for floop in f.loops:
+                if loop_act:
+                    move_vectors.append(move_vectors[-1])
+                    if floop is loop_act:
+                        loop_prev = loop_act
+                        loop_act = None
+                    continue
+
                 loop_act, skip_next_co = \
                     skip_zero_length_edges(floop, normal, reverse=False)
                 if loop_act is None:
                     # All edges is zero length
                     break
 
-                loop_prev = floop.link_loop_prev
-                loop_prev, skip_prev_co = \
-                    skip_zero_length_edges(loop_prev, normal, reverse=True)
+                if loop_prev is None:
+                    loop_prev = floop.link_loop_prev
+                    loop_prev, skip_prev_co = \
+                        skip_zero_length_edges(loop_prev, normal, reverse=True)
 
                 if not follow_face:
                     n1, n2 = None, None
@@ -697,6 +706,10 @@ class OffsetEdges(bpy.types.Operator):
                             should_flip.add(f)
 
                 move_vectors.append(tangent)
+
+                if floop is loop_act:
+                    loop_prev = loop_act
+                    loop_act = None
 
             for floop, vecs in zip(f.loops, move_vectors):
                 vec_tan, factor_act, factor_prev = vecs
