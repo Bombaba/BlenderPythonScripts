@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 12),
+    "version": (0, 1, 13),
     "blender": (2, 68, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -37,7 +37,7 @@ import bpy
 import bmesh
 from bmesh.types import BMVert, BMEdge, BMFace, BMLoop
 from mathutils import Vector, Quaternion
-from time import perf_counter
+#from time import perf_counter
 
 X_UP = Vector((1.0, .0, .0))
 Y_UP = Vector((.0, 1.0, .0))
