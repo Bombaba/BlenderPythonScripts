@@ -20,7 +20,7 @@
 bl_info = {
         "name": "Apply Transform MultiUser",
         "author": "Hidesato Ikeya",
-        "version": (1, 1),
+        "version": (1, 2),
         "blender": (2, 68, 0),
         "location": "View3D > CTRL-A > Multiuser",
         "description": "Apply transform to multi user objects",
@@ -44,22 +44,27 @@ class ApplyTransformMultiUser(bpy.types.Operator):
     keep_visual = bpy.props.BoolProperty(
         name="Keep visual", default=False,
         description="Tries to keep visual proportion as much as possible")
+
+    remove_original = bpy.props.BoolProperty(
+        name="Remove Original Data", default=True,
+        description="Remove original data if it is used by no user.")
     
-    scale = bpy.props.BoolProperty(name="Scale", default=False)
     location = bpy.props.BoolProperty(name="Location", default=False)
     rotation = bpy.props.BoolProperty(name="Rotation", default=False)
+    scale = bpy.props.BoolProperty(name="Scale", default=False)
 
     def draw(self, context):
         layout = self.layout
 
         layout.prop(self, 'only_selected')
         layout.prop(self, 'keep_visual')
+        layout.prop(self, 'remove_original')
 
         layout.separator()
 
-        layout.prop(self, 'scale')
         layout.prop(self, 'location')
         layout.prop(self, 'rotation')
+        layout.prop(self, 'scale')
 
     @classmethod
     def poll(self, context):
@@ -89,7 +94,8 @@ class ApplyTransformMultiUser(bpy.types.Operator):
             linked_objects &= selected_objects
         bpy.ops.object.select_all(action='DESELECT')
 
-        new_data = active.data.copy()
+        orig_data = active.data
+        new_data = orig_data.copy()
         active.data = new_data
         active.select = True
         bpy.ops.object.transform_apply(
@@ -110,6 +116,9 @@ class ApplyTransformMultiUser(bpy.types.Operator):
                     ob.scale[1] *= scale_factor[1]
                     ob.scale[2] *= scale_factor[2]
             ob.select = True
+
+        if self.remove_original and orig_data.users == 0:
+            context.blend_data.meshes.remove(orig_data)
         
         return {'FINISHED'}
     def invoke(self, context, event):
@@ -120,13 +129,6 @@ class ApplyTransformMultiUserMenu(bpy.types.Menu):
     bl_idname = "VIEW3D_MT_object_apply_transform_multiuser"
 
     def draw(self, context):
-        s = self.layout.operator(
-            "object.apply_transform_multiuser",
-            text="Scale")
-        s.location = False
-        s.scale = True
-        s.rotation = False
-
         l = self.layout.operator(
             "object.apply_transform_multiuser",
             text="Location")
@@ -141,6 +143,12 @@ class ApplyTransformMultiUserMenu(bpy.types.Menu):
         r.scale = False
         r.rotation = True
 
+        s = self.layout.operator(
+            "object.apply_transform_multiuser",
+            text="Scale")
+        s.location = False
+        s.scale = True
+        s.rotation = False
 
 def draw_item(self, context):
     self.layout.menu(ApplyTransformMultiUserMenu.bl_idname)
