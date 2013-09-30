@@ -429,20 +429,20 @@ class HairNet (bpy.types.Operator):
     apply_modifiers = BoolProperty(
         name="Apply Modifiers", default=True)
     
-    headObj = 0
-    hairObjList = []
-    
     @classmethod
     def poll(self, context):
         return(context.mode == 'OBJECT')
     
     
     def execute(self, context):
-        self.headObj = context.object
+        headObj = context.object
         
         #Get a list of hair objects
-        self.hairObjList = context.selected_objects
-        self.hairObjList.remove(self.headObj)
+        hairObjList = context.selected_objects
+        hairObjList.remove(headObj)
+        hairObj = hairObjList[0]
+
+        trans_mat = headObj.matrix_world.inverted() * hairObj.matrix_world
         
         hairGuides = []
         
@@ -452,77 +452,76 @@ class HairNet (bpy.types.Operator):
                     
         options = [
                    0,                   #0 the hair system's previous settings
-                   self.hairObjList[0]  #1 The hair object
+                   hairObj              #1 The hair object
                    ]
         
         print("******Start Here*******")
-        sysName = ''.join(["HN", self.hairObjList[0].name])
+        sysName = ''.join(["HN", hairObj.name])
         #Get the head object. It's the last one selected
         #headObj = bpy.context.object
         
         #Preserve hair settings if they exist
-        if sysName in self.headObj.particle_systems:
-            options[0] = self.headObj.particle_systems[sysName].settings
-            if sysName != self.headObj.particle_systems.active.name:
+        if sysName in headObj.particle_systems:
+            options[0] = headObj.particle_systems[sysName].settings
+            if sysName != headObj.particle_systems.active.name:
                 self.report(type = {'ERROR'}, message = "The selected particle system does not match the selected hair object.")
                 return{'CANCELLED'}
         else:
             bpy.ops.object.mode_set(mode='OBJECT')
             #bpy.ops.object.particle_system_remove()
             bpy.ops.object.particle_system_add()
-            self.headObj.particle_systems.active.name = sysName
+            headObj.particle_systems.active.name = sysName
         
             
-        psys = self.headObj.particle_systems[sysName]
+        psys = headObj.particle_systems[sysName]
         psys.name = sysName
         
         if (self.meshKind=="SHEET"):
             print("Hair sheet")
             #Create all hair guides
-            for hairObj in self.hairObjList:
-                if self.apply_modifiers:
-                    me = hairObj.to_mesh(context.scene, True, 'PREVIEW')
-                else:
-                    me = hairObj.data
-                #Identify the seams and their vertices
-                seamVerts, seamEdges, error = getSeams(me)
-            
-                vert_edges = edge_faces = False
-                #For every vert in a seam, get the edge loop spawned by it
-                for thisVert in seamVerts:
-                    edgeLoops, vert_edges, edge_faces = getLoops(me, me.vertices[thisVert], vert_edges, edge_faces, seamEdges)
-                    hairGuides = loopsToGuides(me, edgeLoops, hairGuides)
-                #debPrintHairGuides(hairGuides)
-                #Take each edge loop and extract coordinate data from its verts
-                #hairGuides = createHairGuides(hairObj, edgeLoops)
-                if self.apply_modifiers:
-                    context.blend_data.meshes.remove(me)
+            if self.apply_modifiers:
+                me = hairObj.to_mesh(context.scene, True, 'PREVIEW')
+            else:
+                me = hairObj.to_mesh(context.scene, False, 'PREVIEW')
+            for v in me.vertices:
+                v.co = trans_mat * v.co
+            #Identify the seams and their vertices
+            seamVerts, seamEdges, error = getSeams(me)
+        
+            vert_edges = edge_faces = False
+            #For every vert in a seam, get the edge loop spawned by it
+            for thisVert in seamVerts:
+                edgeLoops, vert_edges, edge_faces = getLoops(me, me.vertices[thisVert], vert_edges, edge_faces, seamEdges)
+                hairGuides = loopsToGuides(me, edgeLoops, hairGuides)
+            #debPrintHairGuides(hairGuides)
+            #Take each edge loop and extract coordinate data from its verts
+            #hairGuides = createHairGuides(hairObj, edgeLoops)
+            context.blend_data.meshes.remove(me)
             
         if (self.meshKind=="FIBER"):
-            hairObj = self.hairObjList[0]
             print("Hair fiber")
             #fibers = getHairsFromFibers(hairObj)
             hairGuides = fibersToGuides(hairObj)
         
         if (self.meshKind=="CURVE"):
             #Preserve Active and selected objects
-            tempActive = headObj = bpy.context.object
+            tempActive = headObj = context.object
             tempSelected = []
             tempSelected.append(bpy.context.selected_objects[0])
             tempSelected.append(bpy.context.selected_objects[1])
-            hairObj = bpy.context.selected_objects[0]
+            #hairObj = bpy.context.selected_objects[0]
             bpy.ops.object.select_all(action='DESELECT')
             
             if hairObj.data.bevel_object != None:
                 error = 3
                 
             
-            bpy.context.scene.objects.active=hairObj
+            context.scene.objects.active=hairObj
             hairObj.select=True
             
             print("Curve Head: ", headObj.name)
             bpy.ops.object.convert(target='MESH', keep_original=True)
-            fiberObj = bpy.context.active_object
+            fiberObj = context.active_object
                         
             print("Hair Fibers: ", fiberObj.name)
             print("Hair Curves: ", hairObj.name)
@@ -532,7 +531,7 @@ class HairNet (bpy.types.Operator):
             bpy.ops.object.delete(use_global=False)
             
             #Restore active object and selection
-            bpy.context.scene.objects.active=tempActive
+            context.scene.objects.active=tempActive
             bpy.ops.object.select_all(action='DESELECT')
             for sel in tempSelected:
                 sel.select = True
@@ -554,18 +553,15 @@ class HairNet (bpy.types.Operator):
         debPrintLoc(func="Execute 2")
         
         #Create the hair guides on the hair object
-        createHair(self.headObj, hairGuides, options)
+        createHair(headObj, hairGuides, options)
        
         debPrintLoc(func="Execute 3")
         return {'FINISHED'}
     
     def invoke (self, context, event):
         
-        if len(bpy.context.selected_objects) < 2:
-            self.report(type = {'ERROR'}, message = "Selection too small. Please select two objects")
-            return {'CANCELLED'}
-        elif len(bpy.context.selected_objects) > 2:
-            self.report(type = {'ERROR'}, message = "Selection too large. Please select two objects")
+        if len(context.selected_objects) != 2:
+            self.report(type = {'ERROR'}, message = "Please select two objects")
             return {'CANCELLED'}
         
         return self.execute(context)
