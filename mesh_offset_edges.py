@@ -64,9 +64,6 @@ class OffsetEdges(bpy.types.Operator):
     follow_face = bpy.props.BoolProperty(
         name="Follow Face", default=False,
         description="Offset along faces around")
-    #detect_hole = bpy.props.BoolProperty(
-    #    name="Detect Hole", default=True,
-    #    description="Detect edges around holes and flip direction")
     end_align_edge = bpy.props.BoolProperty(
         name="End Align Edge", default=False,
         description="End vertices align edge")
@@ -150,7 +147,7 @@ class OffsetEdges(bpy.types.Operator):
                     end_verts.remove(v)
                 else:
                     self.report({'WARNING'},
-                                "Select non-branching edge chains")
+                                "Edge polls detected. Select non-branching edge loops")
                     return None
         #print("Time_v_es_pair:", perf_counter() - ti)
 
@@ -350,9 +347,10 @@ class OffsetEdges(bpy.types.Operator):
         vec_edge = edge.verts[0].co - edge.verts[1].co
         vec_adj = adj_loop.calc_tangent()
         vec_adj -= vec_adj.project(vec_edge)
-        if vec_adj == ZERO_VEC:
+        dot = vec_adj.dot(tangent)
+        if dot == .0:
             return None
-        if vec_adj.dot(tangent) > .0:
+        elif dot > .0:
             # Hole
             return True
         else:
@@ -427,7 +425,7 @@ class OffsetEdges(bpy.types.Operator):
             floop = (floop.link_loop_next if not reverse
                      else floop.link_loop_prev)
             if floop is floop_orig:
-                # All edges is zero length
+                # All edges are zero length
                 return None, None
             skip_co += 1
             length = floop.edge.calc_length()
