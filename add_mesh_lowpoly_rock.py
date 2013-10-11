@@ -22,7 +22,7 @@
 bl_info = {
     "name": "LowPoly Rock",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 1),
+    "version": (0, 1, 2),
     "blender": (2, 68, 0),
     "location": "VIEW3D > ADD > Mesh",
     "description": "LowPoly Rock",
@@ -140,18 +140,6 @@ class LowPolyRock(bpy.types.Operator):
         planer.angle_limit = self.angle
         planer.use_dissolve_boundaries = True
 
-        if self.triangulate:
-            bpy.ops.object.shade_smooth()
-            # Split
-            split = rock.modifiers.new('split', 'EDGE_SPLIT')
-            split.use_edge_angle = True
-            split.use_edge_sharp = False
-            split.split_angle = .0
-
-            # Triangulate
-            triangulate = rock.modifiers.new('triangulate', 'TRIANGULATE')
-            triangulate.use_beauty = True
-
         if self.keep_modifiers:
             rock.location = context.scene.cursor_location
             displace_origin.location += rock.location
@@ -163,6 +151,18 @@ class LowPolyRock(bpy.types.Operator):
             context.scene.objects.unlink(displace_origin)
             context.blend_data.objects.remove(displace_origin)
             context.blend_data.textures.remove(tex)
+
+        if self.triangulate:
+            bpy.ops.object.shade_smooth()
+            # Split
+            split = rock.modifiers.new('split', 'EDGE_SPLIT')
+            split.use_edge_angle = True
+            split.use_edge_sharp = False
+            split.split_angle = .0
+
+            # Triangulate
+            triangulate = rock.modifiers.new('triangulate', 'TRIANGULATE')
+            triangulate.use_beauty = True
 
         rock.data.name = rock.name
         return {'FINISHED'}
