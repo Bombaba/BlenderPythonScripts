@@ -37,7 +37,6 @@ from mathutils import Matrix
 from math import radians
 
 ROCK_NAME = "LowPolyRock"
-CACHE_NAME = ROCK_NAME + "Cache"
 ORIGIN_NAME = ROCK_NAME + "DisplaceOrigin"
 TEXTURE_NAME = ROCK_NAME + "Texture"
 
@@ -101,8 +100,8 @@ class LowPolyRock(bpy.types.Operator):
 
     def execute(self, context):
         bpy.ops.object.select_all(action='DESELECT')
-        rock = context.blend_data.objects.new(
-            ROCK_NAME, get_basemesh(context, self.size))
+        me = get_basemesh(context, self.size)
+        rock = context.blend_data.objects.new(ROCK_NAME, me)
         ix_dot = rock.name.rfind('.')
         if ix_dot != -1:
             number = rock.name[ix_dot:]
@@ -145,9 +144,8 @@ class LowPolyRock(bpy.types.Operator):
             displace_origin.location += rock.location
         else:
             context.scene.update()
-            me_orig = rock.data
             rock.data = rock.to_mesh(context.scene, True, 'PREVIEW')
-            context.blend_data.meshes.remove(me_orig)
+            context.blend_data.meshes.remove(me)
             rock.modifiers.clear()
             rock.location = context.scene.cursor_location
             context.scene.objects.unlink(displace_origin)
