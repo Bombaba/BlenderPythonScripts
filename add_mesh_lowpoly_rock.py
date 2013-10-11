@@ -39,6 +39,7 @@ from math import radians
 ROCK_NAME = "LowPolyRock"
 ORIGIN_NAME = ROCK_NAME + "DisplaceOrigin"
 TEXTURE_NAME = ROCK_NAME + "Texture"
+ANGLE_MAX = radians(90)
 MAT_IDENTITY = Matrix.Identity(3)
 
 
@@ -83,12 +84,11 @@ class LowPolyRock(bpy.types.Operator):
     disp_origin = bpy.props.FloatVectorProperty(
         name="Disp Origin", step=0.1, subtype='TRANSLATION', size=3,
         description="Displacement texture origin")
+    simplicity = bpy.props.FloatProperty(
+        name="Simplicity", min=.0, max=1.0, default=0.25,
+        precision=2, step=0.1, description="Reduce polygons")
     sharpness = bpy.props.FloatProperty(
         name="Sharpness", min=.0, max=2.0, default=.8, precision=3, step=0.1)
-    angle = bpy.props.FloatProperty(
-        name="Planer Angle", min=.0, max=radians(90), default=radians(25),
-        precision=2, step=0.1, subtype='ANGLE',
-        description="Lower value causes more polygons")
     voronoi_weights = bpy.props.FloatVectorProperty(
         name="Voronoi Weights", min=-1.0, max=1.0, size=3,
         default=(1.,.3,.0), step=0.1, description="Voronoi Weights")
@@ -96,7 +96,7 @@ class LowPolyRock(bpy.types.Operator):
         name="Ico Subdivision", min=1, max=6, default=5, options={'HIDDEN'},
         description="Icosphere subdivision")
     collapse_ratio = bpy.props.FloatProperty(
-        name="Detail", min=.0, max=1.0, default=.06, precision=3, step=0.01,
+        name="Collapse", min=.0, max=1.0, default=.06, precision=3, step=0.01,
         options={'HIDDEN'})
 
     @classmethod
@@ -141,7 +141,7 @@ class LowPolyRock(bpy.types.Operator):
         # Planer
         planer = rock.modifiers.new('planer', 'DECIMATE')
         planer.decimate_type = 'DISSOLVE'
-        planer.angle_limit = self.angle
+        planer.angle_limit = self.simplicity * ANGLE_MAX
         planer.use_dissolve_boundaries = True
 
         if self.keep_modifiers:
