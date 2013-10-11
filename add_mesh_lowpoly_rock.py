@@ -39,13 +39,15 @@ from math import radians
 ROCK_NAME = "LowPolyRock"
 ORIGIN_NAME = ROCK_NAME + "DisplaceOrigin"
 TEXTURE_NAME = ROCK_NAME + "Texture"
+MAT_IDENTITY = Matrix.Identity(3)
 
-def get_basemesh(context, radius=1.0):
+
+def get_basemesh(context, radius=1.0, subdiv=5):
     me = context.blend_data.meshes.new('tempmeshname')
     bm = bmesh.new()
     bm.from_mesh(me)
     bmesh.ops.create_icosphere(
-        bm, subdivisions=5, diameter=radius, matrix=Matrix.Identity(3))
+        bm, subdivisions=subdiv, diameter=radius, matrix=MAT_IDENTITY)
     bm.to_mesh(me)
     return me
 
@@ -82,7 +84,7 @@ class LowPolyRock(bpy.types.Operator):
         name="Disp Origin", step=0.1, subtype='TRANSLATION', size=3,
         description="Displacement texture origin")
     sharpness = bpy.props.FloatProperty(
-        name="Sharpness", min=.0, max=2.0, default=.8, precision=3, step=0.01)
+        name="Sharpness", min=.0, max=2.0, default=.8, precision=3, step=0.1)
     angle = bpy.props.FloatProperty(
         name="Planer Angle", min=.0, max=radians(90), default=radians(25),
         precision=2, step=0.1, subtype='ANGLE',
@@ -90,6 +92,9 @@ class LowPolyRock(bpy.types.Operator):
     voronoi_weights = bpy.props.FloatVectorProperty(
         name="Voronoi Weights", min=-1.0, max=1.0, size=3,
         default=(1.,.3,.0), step=0.1, description="Voronoi Weights")
+    ico_subdiv = bpy.props.IntProperty(
+        name="Ico Subdivision", min=1, max=6, default=5, options={'HIDDEN'},
+        description="Icosphere subdivision")
     collapse_ratio = bpy.props.FloatProperty(
         name="Detail", min=.0, max=1.0, default=.06, precision=3, step=0.01,
         options={'HIDDEN'})
@@ -100,7 +105,7 @@ class LowPolyRock(bpy.types.Operator):
 
     def execute(self, context):
         bpy.ops.object.select_all(action='DESELECT')
-        me = get_basemesh(context, self.size)
+        me = get_basemesh(context, self.size, self.ico_subdiv)
         rock = context.blend_data.objects.new(ROCK_NAME, me)
         ix_dot = rock.name.rfind('.')
         if ix_dot != -1:
