@@ -71,27 +71,27 @@ class LowPolyRock(bpy.types.Operator):
     bl_label = "LowPoly Rock"
     bl_options = {'REGISTER', 'UNDO', 'PRESET'}
 
+    keep_modifiers = bpy.props.BoolProperty(
+        name="Keep Modifiers", default=False,
+        description="Keep modifiers")
+    triangulate = bpy.props.BoolProperty(
+        name="Triangulate", default=False,
+        description="Triangulate and Shade smooth")
     disp_origin = bpy.props.FloatVectorProperty(
         name="Disp Origin", step=0.1, subtype='TRANSLATION', size=3,
         description="Displacement texture origin")
     sharpness = bpy.props.FloatProperty(
         name="Sharpness", min=.0, max=2.0, default=.8, precision=3, step=0.01)
-    collapse_ratio = bpy.props.FloatProperty(
-        name="Detail", min=.0, max=1.0, default=.06, precision=3, step=0.01,
-        options={'HIDDEN'})
     angle = bpy.props.FloatProperty(
         name="Planer Angle", min=.0, max=radians(90), default=radians(25),
         precision=2, step=0.1, subtype='ANGLE',
         description="Lower value causes more polygons")
-    triangulate = bpy.props.BoolProperty(
-        name="Triangulate", default=False,
-        description="Triangulate and Shade smooth")
-    keep_modifiers = bpy.props.BoolProperty(
-        name="Keep Modifiers", default=False,
-        description="Keep modifiers")
     voronoi_weights = bpy.props.FloatVectorProperty(
         name="Voronoi Weights", min=-1.0, max=1.0, size=3,
         default=(1.,.3,.0), step=0.1, description="Voronoi Weights")
+    collapse_ratio = bpy.props.FloatProperty(
+        name="Detail", min=.0, max=1.0, default=.06, precision=3, step=0.01,
+        options={'HIDDEN'})
 
     def execute(self, context):
         bpy.ops.object.select_all(action='DESELECT')
