@@ -93,6 +93,10 @@ class LowPolyRock(bpy.types.Operator):
         name="Detail", min=.0, max=1.0, default=.06, precision=3, step=0.01,
         options={'HIDDEN'})
 
+    @classmethod
+    def poll(self, context):
+        return context.mode == 'OBJECT'
+
     def execute(self, context):
         bpy.ops.object.select_all(action='DESELECT')
         rock = context.blend_data.objects.new(ROCK_NAME, get_basemesh(context))
