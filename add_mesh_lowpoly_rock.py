@@ -77,6 +77,8 @@ class LowPolyRock(bpy.types.Operator):
     triangulate = bpy.props.BoolProperty(
         name="Triangulate", default=False,
         description="Triangulate and Shade smooth")
+    size = bpy.props.FloatProperty(
+        name="Size", min=.0, default=1.0, precision=3, step=0.01)
     disp_origin = bpy.props.FloatVectorProperty(
         name="Disp Origin", step=0.1, subtype='TRANSLATION', size=3,
         description="Displacement texture origin")
@@ -99,7 +101,8 @@ class LowPolyRock(bpy.types.Operator):
 
     def execute(self, context):
         bpy.ops.object.select_all(action='DESELECT')
-        rock = context.blend_data.objects.new(ROCK_NAME, get_basemesh(context))
+        rock = context.blend_data.objects.new(
+            ROCK_NAME, get_basemesh(context, self.size))
         ix_dot = rock.name.rfind('.')
         if ix_dot != -1:
             number = rock.name[ix_dot:]
@@ -112,17 +115,18 @@ class LowPolyRock(bpy.types.Operator):
         # Displacement
         displace_origin = \
             context.blend_data.objects.new(ORIGIN_NAME + number, None)
-        context.scene.objects.link(displace_origin)
         displace_origin.location = self.disp_origin
+        displace_origin.location *= self.size
+        context.scene.objects.link(displace_origin)
         disp = rock.modifiers.new('displace', 'DISPLACE')
         disp.direction = 'NORMAL'
         disp.mid_level = 0.5
-        disp.strength = 1.0
+        disp.strength = self.size
         disp.texture_coords = 'OBJECT'
         disp.texture_coords_object  = displace_origin
         tex = get_texture(
-            context, TEXTURE_NAME + number, contrast=self.sharpness,
-            weights=self.voronoi_weights)
+            context, TEXTURE_NAME + number, size=self.size,
+            contrast=self.sharpness, weights=self.voronoi_weights)
         disp.texture = tex
 
         # Collapse
