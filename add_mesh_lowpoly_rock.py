@@ -22,7 +22,7 @@
 bl_info = {
     "name": "LowPoly Rock",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 2),
+    "version": (0, 1, 3),
     "blender": (2, 68, 0),
     "location": "VIEW3D > ADD > Mesh",
     "description": "LowPoly Rock",
@@ -145,7 +145,9 @@ class LowPolyRock(bpy.types.Operator):
             displace_origin.location += rock.location
         else:
             context.scene.update()
+            me_orig = rock.data
             rock.data = rock.to_mesh(context.scene, True, 'PREVIEW')
+            context.blend_data.meshes.remove(me_orig)
             rock.modifiers.clear()
             rock.location = context.scene.cursor_location
             context.scene.objects.unlink(displace_origin)
