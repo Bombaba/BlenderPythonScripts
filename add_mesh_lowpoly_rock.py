@@ -22,7 +22,7 @@
 bl_info = {
     "name": "LowPoly Rock",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 6),
+    "version": (0, 1, 7),
     "blender": (2, 68, 0),
     "location": "VIEW3D > ADD > Mesh",
     "description": "LowPoly Rock",
@@ -105,6 +105,10 @@ class LowPolyRock(bpy.types.Operator):
     size_ratio = bpy.props.FloatVectorProperty(
         name="Size Ratio", size=3, min=.0, default=(1., 1., 1.),
         subtype='TRANSLATION', step=0.1, precision=2, description="Size ratio")
+    displace_midlevel = bpy.props.FloatProperty(
+        name="Midlevel", min=.0, max=1.0, default=.5, precision=3, step=0.1)
+    voronoi_offset = bpy.props.FloatProperty(
+        name="TexOffset", min=.0, max=1.5, default=.8, precision=3, step=0.1)
 
     @classmethod
     def poll(self, context):
@@ -122,10 +126,12 @@ class LowPolyRock(bpy.types.Operator):
         layout.prop(self, 'advanced_menu')
         if self.advanced_menu:
             box = layout.box()
+            box.prop(self, 'displace_midlevel')
             box.prop(self, 'size_ratio')
             box.prop(self, 'voronoi_weights')
             box.prop(self, 'ico_subdiv')
             box.prop(self, 'collapse_ratio')
+            box.prop(self, 'voronoi_offset')
 
     def execute(self, context):
         bpy.ops.object.select_all(action='DESELECT')
@@ -149,12 +155,13 @@ class LowPolyRock(bpy.types.Operator):
         context.scene.objects.link(displace_origin)
         disp = rock.modifiers.new('displace', 'DISPLACE')
         disp.direction = 'NORMAL'
-        disp.mid_level = 0.5
+        disp.mid_level = self.displace_midlevel
         disp.strength = self.size
         disp.texture_coords = 'OBJECT'
         disp.texture_coords_object  = displace_origin
         tex = get_texture(
             context, TEXTURE_NAME + number, size=self.size,
+            brightness=self.voronoi_offset,
             contrast=self.sharpness, weights=self.voronoi_weights)
         disp.texture = tex
 
