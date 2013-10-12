@@ -40,15 +40,16 @@ ROCK_NAME = "LowPolyRock"
 ORIGIN_NAME = ROCK_NAME + "DisplaceOrigin"
 TEXTURE_NAME = ROCK_NAME + "Texture"
 ANGLE_MAX = radians(90)
-MAT_IDENTITY = Matrix.Identity(3)
 
 
-def get_basemesh(context, radius=1.0, subdiv=5):
+def get_basemesh(context, subdiv=5, radius=1.0, ratio=(1., 1., 1.)):
     me = context.blend_data.meshes.new('tempmeshname')
     bm = bmesh.new()
     bm.from_mesh(me)
+    mat = Matrix()
+    mat[0][0], mat[1][1], mat[2][2] = ratio
     bmesh.ops.create_icosphere(
-        bm, subdivisions=subdiv, diameter=radius, matrix=MAT_IDENTITY)
+        bm, subdivisions=subdiv, diameter=radius, matrix=mat)
     bm.to_mesh(me)
     return me
 
@@ -81,14 +82,17 @@ class LowPolyRock(bpy.types.Operator):
         description="Triangulate and Shade smooth")
     size = bpy.props.FloatProperty(
         name="Size", min=.0, default=1.0, precision=3, step=0.01)
-    disp_origin = bpy.props.FloatVectorProperty(
-        name="Disp Origin", step=0.1, subtype='TRANSLATION', size=3,
+    displace_center = bpy.props.FloatVectorProperty(
+        name="Displace Center", step=0.1, subtype='TRANSLATION', size=3,
         description="Displacement texture origin")
     simplicity = bpy.props.FloatProperty(
         name="Simplicity", min=.0, max=1.0, default=0.25,
         precision=2, step=0.1, description="Reduce polygons")
     sharpness = bpy.props.FloatProperty(
         name="Sharpness", min=.0, max=2.0, default=.8, precision=3, step=0.1)
+    advanced_menu = bpy.props.BoolProperty(
+        name="Advanced", default=False,
+        description="Display advanced menu")
     voronoi_weights = bpy.props.FloatVectorProperty(
         name="Voronoi Weights", min=-1.0, max=1.0, size=3,
         default=(1.,.3,.0), step=0.1, description="Voronoi Weights")
@@ -96,16 +100,36 @@ class LowPolyRock(bpy.types.Operator):
         name="Ico Subdivision", min=1, max=6, default=5, options={'HIDDEN'},
         description="Icosphere subdivision")
     collapse_ratio = bpy.props.FloatProperty(
-        name="Collapse", min=.0, max=1.0, default=.06, precision=3, step=0.01,
+        name="Collapse Ratio", min=.0, max=1.0, default=.06, precision=3, step=0.01,
         options={'HIDDEN'})
+    size_ratio = bpy.props.FloatVectorProperty(
+        name="Size Ratio", size=3, min=.0, default=(1., 1., 1.),
+        step=0.1, precision=2, description="Size ratio", )
 
     @classmethod
     def poll(self, context):
         return context.mode == 'OBJECT'
 
+    def draw(self, context):
+        layout = self.layout
+        box = layout.box()
+        box.prop(self, 'keep_modifiers')
+        box.prop(self, 'triangulate')
+        box.prop(self, 'size')
+        box.prop(self, 'simplicity')
+        box.prop(self, 'sharpness')
+        box.prop(self, 'displace_center')
+        layout.prop(self, 'advanced_menu')
+        if self.advanced_menu:
+            box = layout.box()
+            box.prop(self, 'size_ratio')
+            box.prop(self, 'voronoi_weights')
+            box.prop(self, 'ico_subdiv')
+            box.prop(self, 'collapse_ratio')
+
     def execute(self, context):
         bpy.ops.object.select_all(action='DESELECT')
-        me = get_basemesh(context, self.size, self.ico_subdiv)
+        me = get_basemesh(context, self.ico_subdiv, self.size, self.size_ratio)
         rock = context.blend_data.objects.new(ROCK_NAME, me)
         ix_dot = rock.name.rfind('.')
         if ix_dot != -1:
@@ -119,7 +143,7 @@ class LowPolyRock(bpy.types.Operator):
         # Displacement
         displace_origin = \
             context.blend_data.objects.new(ORIGIN_NAME + number, None)
-        displace_origin.location = self.disp_origin
+        displace_origin.location = self.displace_center
         displace_origin.location *= self.size
         context.scene.objects.link(displace_origin)
         disp = rock.modifiers.new('displace', 'DISPLACE')
