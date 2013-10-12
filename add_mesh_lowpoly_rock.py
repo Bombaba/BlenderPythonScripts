@@ -77,9 +77,9 @@ class LowPolyRock(bpy.types.Operator):
     keep_modifiers = bpy.props.BoolProperty(
         name="Keep Modifiers", default=False,
         description="Keep modifiers")
-    triangulate = bpy.props.BoolProperty(
-        name="Triangulate", default=False,
-        description="Triangulate and Shade smooth")
+    edge_split = bpy.props.BoolProperty(
+        name="Edge Split", default=False,
+        description="Shade smooth and add edge split modifier")
     size = bpy.props.FloatProperty(
         name="Size", min=.0, default=1.0, precision=3, step=0.01)
     displace_center = bpy.props.FloatVectorProperty(
@@ -114,7 +114,7 @@ class LowPolyRock(bpy.types.Operator):
         layout = self.layout
         box = layout.box()
         box.prop(self, 'keep_modifiers')
-        box.prop(self, 'triangulate')
+        box.prop(self, 'edge_split')
         box.prop(self, 'size')
         box.prop(self, 'simplicity')
         box.prop(self, 'sharpness')
@@ -182,7 +182,7 @@ class LowPolyRock(bpy.types.Operator):
             context.blend_data.objects.remove(displace_origin)
             context.blend_data.textures.remove(tex)
 
-        if self.triangulate:
+        if self.edge_split:
             bpy.ops.object.shade_smooth()
             # Split
             split = rock.modifiers.new('split', 'EDGE_SPLIT')
@@ -191,8 +191,8 @@ class LowPolyRock(bpy.types.Operator):
             split.split_angle = .0
 
             # Triangulate
-            triangulate = rock.modifiers.new('triangulate', 'TRIANGULATE')
-            triangulate.use_beauty = True
+            #triangulate = rock.modifiers.new('triangulate', 'TRIANGULATE')
+            #triangulate.use_beauty = True
 
         rock.data.name = rock.name
         return {'FINISHED'}
