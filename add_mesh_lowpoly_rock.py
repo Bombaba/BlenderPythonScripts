@@ -97,7 +97,7 @@ class LowPolyRock(bpy.types.Operator):
         name="Voronoi Weights", min=-1.0, max=1.0, size=3,
         default=(1.,.3,.0), step=0.1, description="Voronoi Weights")
     ico_subdiv = bpy.props.IntProperty(
-        name="Ico Subdivision", min=1, max=6, default=5, options={'HIDDEN'},
+        name="Ico Subdivision", min=1, max=7, default=5, options={'HIDDEN'},
         description="Icosphere subdivision")
     collapse_ratio = bpy.props.FloatProperty(
         name="Collapse Ratio", min=.0, max=1.0, default=.06, precision=3, step=0.01,
@@ -131,6 +131,7 @@ class LowPolyRock(bpy.types.Operator):
         bpy.ops.object.select_all(action='DESELECT')
         me = get_basemesh(context, self.ico_subdiv, self.size, self.size_ratio)
         rock = context.blend_data.objects.new(ROCK_NAME, me)
+        rock.show_all_edges = True
         ix_dot = rock.name.rfind('.')
         if ix_dot != -1:
             number = rock.name[ix_dot:]
