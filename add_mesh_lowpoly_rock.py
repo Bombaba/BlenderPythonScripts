@@ -104,7 +104,7 @@ class LowPolyRock(bpy.types.Operator):
         options={'HIDDEN'})
     size_ratio = bpy.props.FloatVectorProperty(
         name="Size Ratio", size=3, min=.0, default=(1., 1., 1.),
-        step=0.1, precision=2, description="Size ratio", )
+        subtype='TRANSLATION', step=0.1, precision=2, description="Size ratio")
 
     @classmethod
     def poll(self, context):
