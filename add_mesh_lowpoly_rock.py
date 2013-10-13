@@ -22,7 +22,7 @@
 bl_info = {
     "name": "LowPoly Rock",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 7),
+    "version": (0, 1, 8),
     "blender": (2, 68, 0),
     "location": "VIEW3D > ADD > Mesh",
     "description": "LowPoly Rock",
