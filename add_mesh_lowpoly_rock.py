@@ -96,19 +96,23 @@ class LowPolyRock(bpy.types.Operator):
     voronoi_weights = bpy.props.FloatVectorProperty(
         name="Voronoi Weights", min=-1.0, max=1.0, size=3,
         default=(1.,.3,.0), step=0.1, description="Voronoi Weights")
-    ico_subdiv = bpy.props.IntProperty(
-        name="Ico Subdivision", min=1, max=7, default=5, options={'HIDDEN'},
-        description="Icosphere subdivision")
-    collapse_ratio = bpy.props.FloatProperty(
-        name="Collapse Ratio", min=.0, max=1.0, default=.06, precision=3, step=0.01,
-        options={'HIDDEN'})
     size_ratio = bpy.props.FloatVectorProperty(
         name="Size Ratio", size=3, min=.0, default=(1., 1., 1.),
         subtype='TRANSLATION', step=0.1, precision=2, description="Size ratio")
     displace_midlevel = bpy.props.FloatProperty(
         name="Midlevel", min=.0, max=1.0, default=.5, precision=3, step=0.1)
-    voronoi_offset = bpy.props.FloatProperty(
-        name="TexOffset", min=.0, max=1.5, default=.8, precision=3, step=0.1)
+    displace_strength = bpy.props.FloatProperty(
+        name="Strength", min=.0, default=1.0, precision=3, step=0.1)
+    noise_size = bpy.props.FloatProperty(
+        name="Nsize", min=.0, default=1.0, precision=3, step=0.1)
+    noise_brightness = bpy.props.FloatProperty(
+        name="Nbright", min=.0, max=1.5, default=.8, precision=3, step=0.1)
+    subdiv = bpy.props.IntProperty(
+        name="Subdivision", min=1, max=7, default=5,
+        description="Icosphere subdivision")
+    collapse_ratio = bpy.props.FloatProperty(
+        name="Collapse Ratio", min=.0, max=1.0, default=.06,
+        precision=3, step=0.01,)
 
     @classmethod
     def poll(self, context):
@@ -126,16 +130,18 @@ class LowPolyRock(bpy.types.Operator):
         layout.prop(self, 'advanced_menu')
         if self.advanced_menu:
             box = layout.box()
-            box.prop(self, 'displace_midlevel')
             box.prop(self, 'size_ratio')
+            box.prop(self, 'displace_midlevel')
+            box.prop(self, 'displace_strength')
             box.prop(self, 'voronoi_weights')
-            box.prop(self, 'ico_subdiv')
+            box.prop(self, 'noise_size')
+            box.prop(self, 'noise_brightness')
+            box.prop(self, 'subdiv')
             box.prop(self, 'collapse_ratio')
-            box.prop(self, 'voronoi_offset')
 
     def execute(self, context):
         bpy.ops.object.select_all(action='DESELECT')
-        me = get_basemesh(context, self.ico_subdiv, self.size, self.size_ratio)
+        me = get_basemesh(context, self.subdiv, self.size, self.size_ratio)
         rock = context.blend_data.objects.new(ROCK_NAME, me)
         rock.show_all_edges = True
         ix_dot = rock.name.rfind('.')
@@ -156,12 +162,12 @@ class LowPolyRock(bpy.types.Operator):
         disp = rock.modifiers.new('displace', 'DISPLACE')
         disp.direction = 'NORMAL'
         disp.mid_level = self.displace_midlevel
-        disp.strength = self.size
+        disp.strength = self.size * self.displace_strength
         disp.texture_coords = 'OBJECT'
         disp.texture_coords_object  = displace_origin
         tex = get_texture(
-            context, TEXTURE_NAME + number, size=self.size,
-            brightness=self.voronoi_offset,
+            context, TEXTURE_NAME + number, size=self.size * self.noise_size,
+            brightness=self.noise_brightness,
             contrast=self.sharpness, weights=self.voronoi_weights)
         disp.texture = tex
 
