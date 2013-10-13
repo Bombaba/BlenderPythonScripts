@@ -102,7 +102,7 @@ class LowPolyRock(bpy.types.Operator):
     displace_midlevel = bpy.props.FloatProperty(
         name="Midlevel", min=.0, max=1.0, default=.5, precision=3, step=0.1)
     displace_strength = bpy.props.FloatProperty(
-        name="Strength", min=.0, default=1.0, precision=3, step=0.1)
+        name="Strength", default=1.0, precision=3, step=0.1)
     noise_size = bpy.props.FloatProperty(
         name="Nsize", min=.0, default=1.0, precision=3, step=0.1)
     noise_brightness = bpy.props.FloatProperty(
