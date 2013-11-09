@@ -68,37 +68,94 @@ def get_texture(context, name, size=1.0, brightness=.8, contrast=.8,
     ramp.elements[0].position = .5
     return tex
 
+def create_rock(context, subdiv, radius, size_ratio,
+                noise_center, noise_size, noise_brightness,
+                sharpness, displace_midlevel, displace_strength,
+                voronoi_weights, simplicity, collapse_ratio):
+    me = get_basemesh(context, subdiv, radius, size_ratio)
+    rock = context.blend_data.objects.new(ROCK_NAME, me)
+    rock.show_all_edges = True
+    ix_dot = rock.name.rfind('.')
+    if ix_dot != -1:
+        number = rock.name[ix_dot:]
+    else:
+        number = ""
+    context.scene.objects.link(rock)
+    context.scene.objects.active = rock
+
+    # Displacement
+    noise_origin = \
+        context.blend_data.objects.new(ORIGIN_NAME + number, None)
+    noise_origin.location = noise_center
+    noise_origin.location *= radius
+    context.scene.objects.link(noise_origin)
+    disp = rock.modifiers.new('displace', 'DISPLACE')
+    disp.direction = 'NORMAL'
+    disp.mid_level = displace_midlevel
+    disp.strength = radius * displace_strength
+    disp.texture_coords = 'OBJECT'
+    disp.texture_coords_object  = noise_origin
+    disp.texture = get_texture(
+        context, TEXTURE_NAME + number, size=radius * noise_size,
+        brightness=noise_brightness,
+        contrast=sharpness, weights=voronoi_weights)
+
+    # Collapse
+    collapse = rock.modifiers.new('collapse', 'DECIMATE')
+    collapse.decimate_type = 'COLLAPSE'
+    collapse.ratio = collapse_ratio
+
+    # Planer
+    planer = rock.modifiers.new('planer', 'DECIMATE')
+    planer.decimate_type = 'DISSOLVE'
+    planer.angle_limit = simplicity * ANGLE_MAX
+    planer.use_dissolve_boundaries = True
+
+    rock.data.name = rock.name
+
+    return rock, noise_origin
+
+
 class LowPolyRock(bpy.types.Operator):
     """LowPoly Rock"""
     bl_idname = "mesh.lowpoly_rock_add"
     bl_label = "LowPoly Rock"
     bl_options = {'REGISTER', 'UNDO', 'PRESET'}
 
-    keep_modifiers = bpy.props.BoolProperty(
-        name="Keep Modifiers", default=False,
-        description="Keep modifiers")
-    edge_split = bpy.props.BoolProperty(
-        name="Edge Split", default=False,
-        description="Shade smooth and add edge split modifier")
+    num_rock = bpy.props.IntProperty(
+        name="Number", min=1, max=10, default=1,
+        description="Number of rocks")
+
+    randomize = bpy.props.BoolProperty(
+        name="Randomize", default=True,
+        description="Randomize")
+
     size = bpy.props.FloatProperty(
         name="Size", min=.0, default=1.0, precision=3, step=0.01)
-    displace_center = bpy.props.FloatVectorProperty(
-        name="Displace Center", step=0.1, subtype='TRANSLATION', size=3,
-        description="Displacement texture origin")
+    noise_center = bpy.props.FloatVectorProperty(
+        name="Noise Center", step=0.1, subtype='TRANSLATION', size=3,
+        description="Displacement noise texture origin")
     simplicity = bpy.props.FloatProperty(
         name="Simplicity", min=.0, max=1.0, default=0.25,
         precision=2, step=0.1, description="Reduce polygons")
     sharpness = bpy.props.FloatProperty(
         name="Sharpness", min=.0, max=2.0, default=.8, precision=3, step=0.1)
+    size_ratio = bpy.props.FloatVectorProperty(
+        name="Size Ratio", size=3, min=.0, default=(1., 1., 1.),
+        subtype='TRANSLATION', step=0.1, precision=2, description="Size ratio")
+    edge_split = bpy.props.BoolProperty(
+        name="Edge Split", default=True,
+        description="Shade smooth and add edge split modifier")
+
+    keep_modifiers = bpy.props.BoolProperty(
+        name="Keep Modifiers", default=False,
+        description="Keep modifiers")
     advanced_menu = bpy.props.BoolProperty(
         name="Advanced", default=False,
         description="Display advanced menu")
     voronoi_weights = bpy.props.FloatVectorProperty(
         name="Voronoi Weights", min=-1.0, max=1.0, size=3,
         default=(1.,.3,.0), step=0.1, description="Voronoi Weights")
-    size_ratio = bpy.props.FloatVectorProperty(
-        name="Size Ratio", size=3, min=.0, default=(1., 1., 1.),
-        subtype='TRANSLATION', step=0.1, precision=2, description="Size ratio")
     displace_midlevel = bpy.props.FloatProperty(
         name="Midlevel", min=.0, max=1.0, default=.5, precision=3, step=0.1)
     displace_strength = bpy.props.FloatProperty(
@@ -121,16 +178,17 @@ class LowPolyRock(bpy.types.Operator):
     def draw(self, context):
         layout = self.layout
         box = layout.box()
-        box.prop(self, 'keep_modifiers')
-        box.prop(self, 'edge_split')
+        box.prop(self, 'num_rock')
         box.prop(self, 'size')
         box.prop(self, 'simplicity')
         box.prop(self, 'sharpness')
-        box.prop(self, 'displace_center')
+        box.prop(self, 'noise_center')
+        box.prop(self, 'size_ratio')
+        box.prop(self, 'edge_split')
         layout.prop(self, 'advanced_menu')
         if self.advanced_menu:
             box = layout.box()
-            box.prop(self, 'size_ratio')
+            box.prop(self, 'keep_modifiers')
             box.prop(self, 'displace_midlevel')
             box.prop(self, 'displace_strength')
             box.prop(self, 'voronoi_weights')
@@ -140,74 +198,44 @@ class LowPolyRock(bpy.types.Operator):
             box.prop(self, 'collapse_ratio')
 
     def execute(self, context):
-        bpy.ops.object.select_all(action='DESELECT')
-        me = get_basemesh(context, self.subdiv, self.size, self.size_ratio)
-        rock = context.blend_data.objects.new(ROCK_NAME, me)
-        rock.show_all_edges = True
-        ix_dot = rock.name.rfind('.')
-        if ix_dot != -1:
-            number = rock.name[ix_dot:]
-        else:
-            number = ""
-        context.scene.objects.link(rock)
-        context.scene.objects.active = rock
-        rock.select = True
+        location = context.scene.cursor_location.copy()
+        radius = self.size
 
-        # Displacement
-        displace_origin = \
-            context.blend_data.objects.new(ORIGIN_NAME + number, None)
-        displace_origin.location = self.displace_center
-        displace_origin.location *= self.size
-        context.scene.objects.link(displace_origin)
-        disp = rock.modifiers.new('displace', 'DISPLACE')
-        disp.direction = 'NORMAL'
-        disp.mid_level = self.displace_midlevel
-        disp.strength = self.size * self.displace_strength
-        disp.texture_coords = 'OBJECT'
-        disp.texture_coords_object  = displace_origin
-        tex = get_texture(
-            context, TEXTURE_NAME + number, size=self.size * self.noise_size,
-            brightness=self.noise_brightness,
-            contrast=self.sharpness, weights=self.voronoi_weights)
-        disp.texture = tex
+        for i in range(self.num_rock):
+            bpy.ops.object.select_all(action='DESELECT')
 
-        # Collapse
-        collapse = rock.modifiers.new('collapse', 'DECIMATE')
-        collapse.decimate_type = 'COLLAPSE'
-        collapse.ratio = self.collapse_ratio
+            rock, noise_origin = create_rock(
+                context, self.subdiv, radius, self.size_ratio,
+                self.noise_center, self.noise_size, self.noise_brightness,
+                self.sharpness, self.displace_midlevel, self.displace_strength,
+                self.voronoi_weights, self.simplicity, self.collapse_ratio)
 
-        # Planer
-        planer = rock.modifiers.new('planer', 'DECIMATE')
-        planer.decimate_type = 'DISSOLVE'
-        planer.angle_limit = self.simplicity * ANGLE_MAX
-        planer.use_dissolve_boundaries = True
+            rock.select = True
 
-        if self.keep_modifiers:
-            rock.location = context.scene.cursor_location
-            displace_origin.location += rock.location
-        else:
-            context.scene.update()
-            rock.data = rock.to_mesh(context.scene, True, 'PREVIEW')
-            context.blend_data.meshes.remove(me)
-            rock.modifiers.clear()
-            rock.location = context.scene.cursor_location
-            context.scene.objects.unlink(displace_origin)
-            context.blend_data.objects.remove(displace_origin)
-            context.blend_data.textures.remove(tex)
+            if self.keep_modifiers:
+                rock.location = location
+                noise_origin.location += location
+            else:
+                context.scene.update()
+                me_orig = rock.data
+                tex = rock.modifiers['displace'].texture
+                rock.data = rock.to_mesh(context.scene, True, 'PREVIEW')
+                context.blend_data.meshes.remove(me_orig)
+                rock.modifiers.clear()
+                rock.location = location
+                context.scene.objects.unlink(noise_origin)
+                context.blend_data.objects.remove(noise_origin)
+                context.blend_data.textures.remove(tex)
 
-        if self.edge_split:
-            bpy.ops.object.shade_smooth()
-            # Split
-            split = rock.modifiers.new('split', 'EDGE_SPLIT')
-            split.use_edge_angle = True
-            split.use_edge_sharp = False
-            split.split_angle = .0
+            if self.edge_split:
+                bpy.ops.object.shade_smooth()
+                split = rock.modifiers.new('split', 'EDGE_SPLIT')
+                split.use_edge_angle = True
+                split.use_edge_sharp = False
+                split.split_angle = .0
 
-            # Triangulate
-            #triangulate = rock.modifiers.new('triangulate', 'TRIANGULATE')
-            #triangulate.use_beauty = True
+            location.x += radius * 1.5
 
-        rock.data.name = rock.name
         return {'FINISHED'}
 
     def invoke(self, context, event):
