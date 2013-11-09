@@ -22,7 +22,7 @@
 bl_info = {
     "name": "LowPoly Rock",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 8),
+    "version": (0, 1, 9),
     "blender": (2, 68, 0),
     "location": "VIEW3D > ADD > Mesh",
     "description": "LowPoly Rock",
@@ -111,8 +111,6 @@ def create_rock(context, subdiv, radius, size_ratio,
     planer.decimate_type = 'DISSOLVE'
     planer.angle_limit = simplicity * ANGLE_MAX
     planer.use_dissolve_boundaries = True
-
-    rock.data.name = rock.name
 
     return rock, noise_origin
 
@@ -280,6 +278,8 @@ class LowPolyRock(bpy.types.Operator):
                 split.use_edge_sharp = False
                 split.split_angle = .0
                 rock.select = False
+
+            rock.data.name = rock.name
 
             radius = self.size * (1.0 + uniform(self.size_min, self.size_max))
             for i in range(3):
