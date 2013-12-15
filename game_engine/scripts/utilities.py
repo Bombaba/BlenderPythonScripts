@@ -12,6 +12,8 @@ AXIS_X = mathutils.Vector((1, 0, 0))
 AXIS_Y = mathutils.Vector((0, 1, 0))
 AXIS_Z = mathutils.Vector((0, 0, 1))
 
+VEC_0 = mathutils.Vector()
+
 
 def register(cls, cont):
     cls(cont.owner)

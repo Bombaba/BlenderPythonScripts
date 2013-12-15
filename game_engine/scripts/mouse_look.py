@@ -1,26 +1,52 @@
 from bge import logic
+from bge.logic import KX_INPUT_NONE, KX_INPUT_JUST_ACTIVATED, KX_INPUT_ACTIVE, KX_INPUT_JUST_RELEASED
 from bge import render
 from bge import events
 from bge import types
 from bge import constraints
-import mathutils
+from mathutils import Vector
 
 from . import utilities
-from .utilities import ANGLE_0, ANGLE_180, AXIS_Z
-import math
+from .utilities import ANGLE_0, ANGLE_90, ANGLE_180, ANGLE_360, AXIS_Z
+from math import cos, sin, acos
 
 class MouseLook(types.KX_Camera):
-    speed = 0.2
     sensitivity = 0.001
+    _threshold = 0.01
     upper_limit = ANGLE_180
     lower_limit = ANGLE_0
-    limit_threshold = 0.01
+
+    speed = 0.15
+    body_height = 1.8
+    body_width = 1.6
+    jump_speed = 8
+    onground_remain = 10
     def __init__(self, old_owner):
         types.KX_Camera.__init__(self)
         #render.showMouse(True)
         logic.mouse.position = .5, .5
-        self.phys_parent = constraints.getCharacter(self.parent)
-        self.walk_direction = mathutils.Vector()
+
+        self.phys_id = self.parent.getPhysicsId()
+        if self.phys_id:
+            self.phys_parent = constraints.getCharacter(self.parent)
+            #print(dir(self.phys_parent))
+        else:
+            self.phys_parent = None
+        self.walk_direction = Vector()
+
+        self.onground = 0
+
+        self.init_touch_vectors()
+
+    def init_touch_vectors(self):
+        height = self.body_height / 2 + self._threshold
+        width = self.body_width / 2
+        self.touch_vectors = [Vector((0, 0, -height)),]
+        radian = ANGLE_90
+        for i in range(8):
+            self.touch_vectors.append(
+                Vector((cos(radian) * width, sin(radian) * width, -height)))
+            radian += ANGLE_360 / 8
 
     def main(self):
         self.look()
@@ -35,9 +61,10 @@ class MouseLook(types.KX_Camera):
 
         laxis_z = self.localOrientation.transposed()[2]
         laxis_z.normalize()
-        angle = math.acos(laxis_z.dot(AXIS_Z))
-        upper_limit = self.upper_limit - self.limit_threshold
-        lower_limit = self.lower_limit + self.limit_threshold
+        #laxis_z = self.getAxisVect(AXIS_Z)
+        angle = acos(laxis_z.dot(AXIS_Z))
+        upper_limit = self.upper_limit - self._threshold
+        lower_limit = self.lower_limit + self._threshold
         if angle + y > upper_limit:
             y = upper_limit - angle
         elif angle + y < lower_limit:
@@ -54,7 +81,6 @@ class MouseLook(types.KX_Camera):
         walk_direction = self.walk_direction
         walk_direction[:] = (0, 0, 0)
         speed = self.speed
-        phys_parent = self.phys_parent
 
         if key.events[events.WKEY]:
             walk_direction[1] += 1
@@ -65,16 +91,43 @@ class MouseLook(types.KX_Camera):
         if key.events[events.AKEY]:
             walk_direction[0] -= 1
         walk_direction.normalize()
-        walk_direction = speed * self.parent.localOrientation * walk_direction
-        phys_parent.walkDirection = walk_direction
+        walk_direction *= speed
 
-        if key.events[events.SPACEKEY]:
-            phys_parent.jump()
+        phys_parent = self.phys_parent
+        if phys_parent:
+            walk_direction = self.parent.localOrientation * walk_direction
+            phys_parent.walkDirection = walk_direction
 
-        if key.events[events.EKEY]:
-            self.applyMovement((0, 0, speed), False)
-        if key.events[events.CKEY]:
-            self.applyMovement((0, 0, -speed), False)
+            if key.events[events.SPACEKEY]:
+                #parent.applyForce((0, 0, self.jump_power), True)
+                phys_parent.jump()
+        elif self.phys_id != 0:
+            parent = self.parent
+
+            for vec in self.touch_vectors:
+                direction = parent.worldPosition + parent.getAxisVect(vec)
+                obj = parent.rayCastTo(direction, vec.length)
+                if obj:
+                    self.onground = self.onground_remain
+                    break
+
+            if self.onground:
+                self.onground -= 1
+                if key.events[events.SPACEKEY]:
+                    velocity = parent.getLinearVelocity(True)
+                    velocity[2] = max(velocity[2], self.jump_speed)
+                    parent.setLinearVelocity(velocity, True)
+                    self.onground = 0
+
+            parent.applyMovement(walk_direction, True)
+        else:
+            if key.events[events.EKEY]:
+                walk_direction[2] += speed
+            if key.events[events.CKEY]:
+                walk_direction[2] -= speed
+            self.parent.applyMovement(walk_direction, True)
+
+
 
 def register(cont):
     utilities.register(MouseLook, cont)
