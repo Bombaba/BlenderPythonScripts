@@ -12,12 +12,12 @@ from math import cos, sin, acos
 
 class MouseLook(types.KX_Camera):
     sensitivity = 0.001
-    _threshold = 0.01
+    _error = 0.01
     upper_limit = ANGLE_180
     lower_limit = ANGLE_0
 
     speed = 0.15
-    body_height = 1.8
+    body_height = 0.2
     body_width = 1.6
     jump_speed = 1
     onground_remain = 10
@@ -41,7 +41,7 @@ class MouseLook(types.KX_Camera):
         self.init_touch_vectors()
 
     def init_touch_vectors(self):
-        height = self.body_height / 2 + self._threshold
+        height = self.body_height / 2 + self._error
         width = self.body_width / 2
         self.touch_vectors = [Vector((0, 0, -height)),]
         radian = ANGLE_90
@@ -65,8 +65,8 @@ class MouseLook(types.KX_Camera):
         laxis_z.normalize()
         #laxis_z = self.getAxisVect(AXIS_Z)
         angle = acos(laxis_z.dot(AXIS_Z))
-        upper_limit = self.upper_limit - self._threshold
-        lower_limit = self.lower_limit + self._threshold
+        upper_limit = self.upper_limit - self._error
+        lower_limit = self.lower_limit + self._error
         if angle + y > upper_limit:
             y = upper_limit - angle
         elif angle + y < lower_limit:
@@ -119,6 +119,7 @@ class MouseLook(types.KX_Camera):
                     if obj:
                         self.onground = self.onground_remain
                         break
+
 
                 if self.onground:
                     self.onground -= 1
