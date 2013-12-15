@@ -19,8 +19,9 @@ class MouseLook(types.KX_Camera):
     speed = 0.15
     body_height = 1.8
     body_width = 1.6
-    jump_speed = 8
+    jump_speed = 1
     onground_remain = 10
+    jumping_time = 8
     def __init__(self, old_owner):
         types.KX_Camera.__init__(self)
         #render.showMouse(True)
@@ -35,6 +36,7 @@ class MouseLook(types.KX_Camera):
         self.walk_direction = Vector()
 
         self.onground = 0
+        self.jumping = 0
 
         self.init_touch_vectors()
 
@@ -104,20 +106,28 @@ class MouseLook(types.KX_Camera):
         elif self.phys_id != 0:
             parent = self.parent
 
-            for vec in self.touch_vectors:
-                direction = parent.worldPosition + parent.getAxisVect(vec)
-                obj = parent.rayCastTo(direction, vec.length)
-                if obj:
-                    self.onground = self.onground_remain
-                    break
-
-            if self.onground:
-                self.onground -= 1
+            if self.jumping:
+                self.jumping -= 1
                 if key.events[events.SPACEKEY]:
                     velocity = parent.getLinearVelocity(True)
-                    velocity[2] = max(velocity[2], self.jump_speed)
+                    velocity[2] += self.jump_speed
                     parent.setLinearVelocity(velocity, True)
-                    self.onground = 0
+            else:
+                for vec in self.touch_vectors:
+                    direction = parent.worldPosition + parent.getAxisVect(vec)
+                    obj = parent.rayCastTo(direction, vec.length)
+                    if obj:
+                        self.onground = self.onground_remain
+                        break
+
+                if self.onground:
+                    self.onground -= 1
+                    if key.events[events.SPACEKEY]:
+                        velocity = parent.getLinearVelocity(True)
+                        velocity[2] = max(velocity[2], self.jump_speed)
+                        parent.setLinearVelocity(velocity, True)
+                        self.onground = 0
+                        self.jumping = self.jumping_time
 
             parent.applyMovement(walk_direction, True)
         else:
