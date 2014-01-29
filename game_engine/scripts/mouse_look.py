@@ -26,7 +26,7 @@ class MouseLook(types.KX_GameObject):
 
     def __init__(self, old_owner):
         types.KX_GameObject.__init__(self)
-        #render.showMouse(True)
+        render.showMouse(True)
         logic.mouse.position = .5, .5
 
         self.phys_id = self.getPhysicsId()
@@ -54,10 +54,11 @@ class MouseLook(types.KX_GameObject):
 
     def look(self):
         sense = self.sensitivity
-        x = round(0.5 - logic.mouse.position[0], 5) * sense \
-                * render.getWindowWidth()
-        y = round(0.5 - logic.mouse.position[1], 5) * sense \
-                * render.getWindowHeight()
+        w, h = render.getWindowWidth(), render.getWindowHeight()
+        x = int(logic.mouse.position[0] * w) - w // 2
+        y = int(logic.mouse.position[1] * h) - h // 2
+        x *= -sense
+        y *= -sense
 
         head = self.head or self
         laxis_z = head.localOrientation.transposed()[2]
@@ -100,7 +101,6 @@ class MouseLook(types.KX_GameObject):
             phys_chara.walkDirection = walk_direction
 
             if key.events[events.SPACEKEY]:
-                #parent.applyForce((0, 0, self.jump_power), True)
                 phys_chara.jump()
         elif self.phys_id != 0:
             walk_direction[2] = self.getLinearVelocity(True)[2]
