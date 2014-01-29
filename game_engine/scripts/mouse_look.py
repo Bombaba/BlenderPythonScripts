@@ -5,6 +5,7 @@ from bge import events
 from bge import types
 from bge import constraints
 from mathutils import Vector
+from time import perf_counter
 
 from . import utilities
 from .utilities import ANGLE_0, ANGLE_90, ANGLE_180, ANGLE_360, AXIS_Z
@@ -19,10 +20,9 @@ class MouseLook(types.KX_GameObject):
     speed = 10.0
     body_height = 0.2
     body_width = 1.6
-    jump_speed = 1.0
-    jumping_time = 8
-    jump_speed_max = 16.0
-    onground_time = 10
+
+    jump_speed = 10.0
+    jump_threshold = 3.0
 
     def __init__(self, old_owner):
         types.KX_GameObject.__init__(self)
@@ -45,8 +45,7 @@ class MouseLook(types.KX_GameObject):
 
         self.walk_direction = Vector()
 
-        self.onground = 0
-        self.jumping = 0
+        self.jumping = False
 
     def main(self):
         self.look()
@@ -54,11 +53,12 @@ class MouseLook(types.KX_GameObject):
 
     def look(self):
         sense = self.sensitivity
-        w, h = render.getWindowWidth(), render.getWindowHeight()
-        x = int(logic.mouse.position[0] * w) - w // 2
-        y = int(logic.mouse.position[1] * h) - h // 2
-        x *= -sense
-        y *= -sense
+        x = (0.5 - logic.mouse.position[0]) * render.getWindowWidth()
+        y = (0.5 - logic.mouse.position[1]) * render.getWindowHeight()
+        if abs(y) <= 1.0:
+            y = 0.0
+        x *= sense
+        y *= sense
 
         head = self.head or self
         laxis_z = head.localOrientation.transposed()[2]
@@ -103,26 +103,21 @@ class MouseLook(types.KX_GameObject):
             if key.events[events.SPACEKEY]:
                 phys_chara.jump()
         elif self.phys_id != 0:
-            walk_direction[2] = self.getLinearVelocity(True)[2]
+            hit = self.foot_sensor.hitObject
+            velo_z = self.getLinearVelocity(True)[2]
+            walk_direction[2] = velo_z
+            space = key.events[events.SPACEKEY]
+            if velo_z < self.jump_threshold:
+                self.jumping = False
+
             if self.jumping:
-                self.jumping -= 1
-                if key.events[events.SPACEKEY]:
-                    walk_direction[2] += self.jump_speed
-                    if walk_direction[2] > self.jump_speed_max:
-                        walk_direction[2] = self.jump_speed_max
-            elif self.foot:
-                if self.foot_sensor.hitObject:
-                    self.onground = self.onground_time
+                if not space:
+                    walk_direction[2] = velo_z / 2
+                    self.jumping = False
+            elif space and hit:
+                walk_direction[2] = max(velo_z, self.jump_speed)
+                self.jumping = True
 
-                if self.onground:
-                    self.onground -= 1
-                    if key.events[events.SPACEKEY]:
-                        walk_direction[2] = max(walk_direction[2], self.jump_speed)
-                        self.onground = 0
-                        self.jumping = self.jumping_time
-
-            # Anisotrophic Friction along z axis should be 0
-            # for smooth jumping.
             self.setLinearVelocity(walk_direction, True)
         else:
             if key.events[events.EKEY]:
