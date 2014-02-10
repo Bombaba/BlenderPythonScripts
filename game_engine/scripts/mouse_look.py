@@ -43,8 +43,8 @@ class MouseLook(types.KX_GameObject):
                 self.foot = c
 
         self.walk_direction = Vector.Fill(3, .0)
-        self.walk_lz_prev = 0
         self.walk_key = [0, 0, 0]
+        #self.walk_lz_prev = 0
 
         self.jumping = False
 
@@ -186,10 +186,15 @@ class MouseLook(types.KX_GameObject):
             #    self.jumping = True
             walk_direction[:] = self.foot.localOrientation * walk_direction
             walk_lz = walk_direction[2]
-            walk_lz_prev = self.walk_lz_prev
             velo_lz = self.getLinearVelocity(True)[2]
-            if -0.05 < walk_lz < 0.05:
-                walk_direction[2] = velo_lz - walk_lz_prev
+            ground = self.ground
+            if ground:
+                walk_direction -= self.worldOrientation.inverted() * ground * 5
+            else:
+                walk_direction[2] = velo_lz
+            #walk_lz_prev = self.walk_lz_prev
+            #if -0.05 < walk_lz < 0.05:
+            #    walk_direction[2] = velo_lz - walk_lz_prev
 
             self.walk_lz_prev = walk_lz
 
