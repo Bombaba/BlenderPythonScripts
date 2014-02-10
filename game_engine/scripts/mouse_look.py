@@ -43,8 +43,6 @@ class MouseLook(types.KX_GameObject):
                 self.foot = c
 
         self.walk_direction = Vector.Fill(3, .0)
-        self.walk_key = [0, 0, 0]
-        #self.walk_lz_prev = 0
 
         self.jumping = False
 
@@ -55,7 +53,7 @@ class MouseLook(types.KX_GameObject):
 
     def detect_onground(self):
         offset = 0.2
-        dist = 0.2001
+        dist = 0.21
         pos_w = self.worldPosition.copy()
         ori = self.worldOrientation.col
         waxis_ly = ori[1]
@@ -109,23 +107,6 @@ class MouseLook(types.KX_GameObject):
 
         logic.mouse.position = .5, .5
 
-    #def detect_col(self, vec_to, division=3):
-    #    if vec_to.length < 0.1:
-    #        return vec_to
-    #    offset = 0.05
-    #    dist = self.body_width / 2 + 0.01
-    #    vec_from = self.worldPosition.copy()
-    #    waxis_lz = self.worldOrientation.col[2]
-    #    vec_from += waxis_lz * offset
-    #    vec_delta = waxis_lz * ((self.body_height - offset * 2) / division)
-    #    rayCast = self.rayCast
-    #    for i in range(division):
-    #        vec_from += vec_delta
-    #        normal = rayCast(vec_from + vec_to, vec_from, dist)[2]
-    #        if normal:
-    #            return vec_to - normal * vec_to.dot(normal)
-    #    return vec_to
-
     def move(self):
         key = logic.keyboard
 
@@ -136,23 +117,13 @@ class MouseLook(types.KX_GameObject):
 
         if key.events[events.WKEY]:
             walk_direction[1] = 1.0
-            #walk_key[1] = 1.0
         if key.events[events.SKEY]:
             walk_direction[1] = -1.0
-            #walk_key[1] = -1.0
-        #elif walk_key[1]:
-        #    walk_direction[1] = -walk_key[1]
-        #    walk_key[1] = 0
 
         if key.events[events.DKEY]:
             walk_direction[0] = 1.0
-            #walk_key[0] = 1.0
         if key.events[events.AKEY]:
             walk_direction[0] = -1.0
-            #walk_key[0] = -1.0
-        #elif walk_key[0]:
-        #    walk_direction[0] = -walk_key[0]
-        #    walk_key[0] = 0
 
         walk_direction.normalize()
 
@@ -160,43 +131,32 @@ class MouseLook(types.KX_GameObject):
             walk_direction *= speed
             self.rotate_foot()
 
-            space = key.events[events.SPACEKEY]
-            #if velo_z < self.jump_threshold:
-            #    self.jumping = False
-
-            #if self.jumping:
-            #    if not space:
-            #        walk_direction[2] = velo_z / 2
-            #        self.jumping = False
-            #elif space and hit:
-            #    walk_direction[2] = max(velo_z, self.jump_speed)
-            #    self.jumping = True
-
-            #self.setLinearVelocity(walk_direction, True)
-
-            #walk_direction[:] = self.walk.worldOrientation * walk_direction
-            #velo = self.getLinearVelocity(False) + walk_direction
-            #for i in range(3):
-            #    v, d = velo[i], walk_direction[i]
-            #    if v * d > 0.0 and abs(v) > abs(d):
-            #        velo[i] = walk_direction[i]
-
-            #if space and hit:
-            #    walk_direction[2] = self.jump_speed
-            #    self.jumping = True
             walk_direction[:] = self.foot.localOrientation * walk_direction
             walk_lz = walk_direction[2]
             velo_lz = self.getLinearVelocity(True)[2]
+
             ground = self.ground
-            if ground:
-                walk_direction -= self.worldOrientation.inverted() * ground * 5
+            space = key.events[events.SPACEKEY]
+
+            if velo_lz < self.jump_threshold:
+                self.jumping = False
+
+            if self.jumping:
+                if not space:
+                    walk_direction[2] = velo_lz / 2
+                    self.jumping = False
+                else:
+                    walk_direction[2] = velo_lz
+            elif ground:
+                if space:
+                    walk_direction[2] += self.jump_speed
+                    self.jumping = True
+                else:
+                    walk_direction -= self.worldOrientation.inverted() * ground
             else:
                 walk_direction[2] = velo_lz
-            #walk_lz_prev = self.walk_lz_prev
-            #if -0.05 < walk_lz < 0.05:
-            #    walk_direction[2] = velo_lz - walk_lz_prev
 
-            self.walk_lz_prev = walk_lz
+
 
             self.setLinearVelocity(walk_direction, True)
         else:
