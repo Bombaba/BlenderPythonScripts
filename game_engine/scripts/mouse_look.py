@@ -23,7 +23,6 @@ class MouseLook(types.KX_GameObject):
     body_width = 1.6
 
     jump_speed = 10.0
-    jump_threshold = 3.0
 
     division_onground = 8
     division_angle = 2 * pi / division_onground
@@ -110,7 +109,6 @@ class MouseLook(types.KX_GameObject):
     def move(self):
         key = logic.keyboard
 
-        #walk_key = self.walk_key
         walk_direction = self.walk_direction
         walk_direction[:] = (0, 0, 0)
         speed = self.speed
@@ -126,19 +124,20 @@ class MouseLook(types.KX_GameObject):
             walk_direction[0] = -1.0
 
         walk_direction.normalize()
+        walk_direction *= speed
 
         if self.phys_id != 0:
-            walk_direction *= speed
             self.rotate_foot()
 
-            walk_direction[:] = self.foot.localOrientation * walk_direction
+            footlocal = self.foot.localOrientation
+            walk_direction[:] = footlocal * walk_direction
             walk_lz = walk_direction[2]
             velo_lz = self.getLinearVelocity(True)[2]
 
             ground = self.ground
             space = key.events[events.SPACEKEY]
 
-            if velo_lz < self.jump_threshold:
+            if ground or velo_lz < 3.0:
                 self.jumping = False
 
             if self.jumping:
@@ -152,11 +151,9 @@ class MouseLook(types.KX_GameObject):
                     walk_direction[2] += self.jump_speed
                     self.jumping = True
                 else:
-                    walk_direction -= self.worldOrientation.inverted() * ground
+                    walk_direction -= footlocal.col[2]
             else:
                 walk_direction[2] = velo_lz
-
-
 
             self.setLinearVelocity(walk_direction, True)
         else:
@@ -164,9 +161,9 @@ class MouseLook(types.KX_GameObject):
                 walk_direction[2] += speed
             if key.events[events.CKEY]:
                 walk_direction[2] -= speed
+            walk_direction /= logic.getAverageFrameRate()
 
-            walk_direction = self.foot.worldOrientation * walk_direction
-            self.applyMovement(walk_direction, False)
+            self.applyMovement(walk_direction, True)
 
 def register(cont):
     utilities.register(MouseLook, cont)
