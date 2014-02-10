@@ -15,7 +15,6 @@ MAT_IDENTITY3 = Matrix.Identity(3)
 
 class MouseLook(types.KX_GameObject):
     sensitivity = 0.001
-    _error = 0.01
     upper_limit = ANGLE_180
     lower_limit = ANGLE_0
 
@@ -44,7 +43,7 @@ class MouseLook(types.KX_GameObject):
                 self.foot = c
 
         self.walk_direction = Vector.Fill(3, .0)
-        self.walk_delta = Vector.Fill(3, .0)
+        self.walk_lz_prev = 0
         self.walk_key = [0, 0, 0]
 
         self.jumping = False
@@ -55,20 +54,22 @@ class MouseLook(types.KX_GameObject):
         self.move()
 
     def detect_onground(self):
+        offset = 0.2
+        dist = 0.2001
         pos_w = self.worldPosition.copy()
         ori = self.worldOrientation.col
         waxis_ly = ori[1]
         waxis_lz = ori[2]
-        pos_w += waxis_lz * 0.2
-        ground = self.rayCast(pos_w - waxis_lz, pos_w, .5)[2]
+        pos_w += waxis_lz * offset
+        ground = self.rayCast(pos_w - waxis_lz, pos_w, dist)[2]
         
         if not ground:
-            angle = self.division_angle
-            quat = Quaternion(waxis_lz, angle)
+            quat = Quaternion(waxis_lz, self.division_angle)
             v = waxis_ly * (self.body_width / 2)
+            rayCast = self.rayCast
             for i in range(self.division_onground):
                 vec_from = pos_w + v
-                ground = self.rayCast(vec_from - waxis_lz, vec_from, .5)[2]
+                ground = rayCast(vec_from - waxis_lz, vec_from, dist)[2]
                 if ground:
                     break
                 v.rotate(quat)
@@ -96,8 +97,8 @@ class MouseLook(types.KX_GameObject):
         laxis_z = head.localOrientation.col[2]
         #laxis_z = self.getAxisVect(AXIS_Z)
         angle = acos(laxis_z.dot(AXIS_Z))
-        upper_limit = self.upper_limit - self._error
-        lower_limit = self.lower_limit + self._error
+        upper_limit = self.upper_limit - 0.01
+        lower_limit = self.lower_limit + 0.01
         if angle + y > upper_limit:
             y = upper_limit - angle
         elif angle + y < lower_limit:
@@ -108,29 +109,55 @@ class MouseLook(types.KX_GameObject):
 
         logic.mouse.position = .5, .5
 
+    #def detect_col(self, vec_to, division=3):
+    #    if vec_to.length < 0.1:
+    #        return vec_to
+    #    offset = 0.05
+    #    dist = self.body_width / 2 + 0.01
+    #    vec_from = self.worldPosition.copy()
+    #    waxis_lz = self.worldOrientation.col[2]
+    #    vec_from += waxis_lz * offset
+    #    vec_delta = waxis_lz * ((self.body_height - offset * 2) / division)
+    #    rayCast = self.rayCast
+    #    for i in range(division):
+    #        vec_from += vec_delta
+    #        normal = rayCast(vec_from + vec_to, vec_from, dist)[2]
+    #        if normal:
+    #            return vec_to - normal * vec_to.dot(normal)
+    #    return vec_to
+
     def move(self):
         key = logic.keyboard
 
         #walk_key = self.walk_key
         walk_direction = self.walk_direction
         walk_direction[:] = (0, 0, 0)
-        walk_delta = self.walk_delta
         speed = self.speed
 
         if key.events[events.WKEY]:
-            walk_direction[1] += 1.0
-        elif key.events[events.SKEY]:
-            walk_direction[1] -= 1.0
+            walk_direction[1] = 1.0
+            #walk_key[1] = 1.0
+        if key.events[events.SKEY]:
+            walk_direction[1] = -1.0
+            #walk_key[1] = -1.0
+        #elif walk_key[1]:
+        #    walk_direction[1] = -walk_key[1]
+        #    walk_key[1] = 0
 
         if key.events[events.DKEY]:
-            walk_direction[0] += 1.0
-        elif key.events[events.AKEY]:
-            walk_direction[0] -= 1.0
+            walk_direction[0] = 1.0
+            #walk_key[0] = 1.0
+        if key.events[events.AKEY]:
+            walk_direction[0] = -1.0
+            #walk_key[0] = -1.0
+        #elif walk_key[0]:
+        #    walk_direction[0] = -walk_key[0]
+        #    walk_key[0] = 0
 
         walk_direction.normalize()
-        walk_direction *= speed
 
         if self.phys_id != 0:
+            walk_direction *= speed
             self.rotate_foot()
 
             space = key.events[events.SPACEKEY]
@@ -158,15 +185,13 @@ class MouseLook(types.KX_GameObject):
             #    walk_direction[2] = self.jump_speed
             #    self.jumping = True
             walk_direction[:] = self.foot.localOrientation * walk_direction
-            velo = self.getLinearVelocity(True)
-            for i in range(3):
-                v, w = velo[i], walk_direction[i]
-                if v >= 0.0 and w > 0.0:
-                    walk_direction[i] = max(v, w)
-                elif v <= 0.0 and w < 0.0:
-                    walk_direction[i] = min(v, w)
-                else:
-                    walk_direction[i] += v
+            walk_lz = walk_direction[2]
+            walk_lz_prev = self.walk_lz_prev
+            velo_lz = self.getLinearVelocity(True)[2]
+            if -0.05 < walk_lz < 0.05:
+                walk_direction[2] = velo_lz - walk_lz_prev
+
+            self.walk_lz_prev = walk_lz
 
             self.setLinearVelocity(walk_direction, True)
         else:
@@ -175,7 +200,7 @@ class MouseLook(types.KX_GameObject):
             if key.events[events.CKEY]:
                 walk_direction[2] -= speed
 
-            walk_direction = self.walk.worldOrientation * walk_direction
+            walk_direction = self.foot.worldOrientation * walk_direction
             self.applyMovement(walk_direction, False)
 
 def register(cont):
