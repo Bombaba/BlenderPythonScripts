@@ -5,7 +5,6 @@ from bge import events
 from bge import types
 from bge import constraints
 from mathutils import Matrix, Vector, Quaternion
-from time import perf_counter
 
 from . import utilities
 from .utilities import ANGLE_0, ANGLE_90, ANGLE_180, ANGLE_360, AXIS_Z
@@ -29,7 +28,7 @@ class MouseLook(types.KX_GameObject):
 
     def __init__(self, old_owner):
         types.KX_GameObject.__init__(self)
-        render.showMouse(True)
+        #render.showMouse(True)
         logic.mouse.position = .5, .5
 
         self.phys_id = self.getPhysicsId()
@@ -85,6 +84,8 @@ class MouseLook(types.KX_GameObject):
         sense = self.sensitivity
         x = (0.5 - logic.mouse.position[0]) * render.getWindowWidth()
         y = (0.5 - logic.mouse.position[1]) * render.getWindowHeight()
+        if abs(x) <= 1.0:
+            x = 0.0
         if abs(y) <= 1.0:
             y = 0.0
         x *= sense
