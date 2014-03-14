@@ -22,8 +22,8 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 13),
-    "blender": (2, 68, 0),
+    "version": (0, 1, 14),
+    "blender": (2, 70, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
     "warning": "",
@@ -65,8 +65,8 @@ class OffsetEdges(bpy.types.Operator):
         name="Follow Face", default=False,
         description="Offset along faces around")
     end_align_edge = bpy.props.BoolProperty(
-        name="End Align Edge", default=False,
-        description="End vertices align edge")
+        name="Align Ends with Edges", default=False,
+        description="Align End vertices with edges")
     flip = bpy.props.BoolProperty(
         name="Flip", default=False,
         description="Flip direction")
@@ -389,24 +389,24 @@ class OffsetEdges(bpy.types.Operator):
                     for sf in sides:
                         sf.normal_flip()
 
-        bmesh.ops.delete(bm, geom=img_faces, context=1)
+        bmesh.ops.delete(bm, geom=img_faces, context=3)
 
         if self.geometry_mode != 'extrude':
             if self.geometry_mode == 'offset':
-                bmesh.ops.delete(bm, geom=side_edges+side_faces, context=1)
+                bmesh.ops.delete(bm, geom=side_edges+side_faces, context=2)
             elif self.geometry_mode == 'move':
                 for v_target, v_orig in v_v_pairs.items():
                     v_orig.co = v_target.co
                 bmesh.ops.delete(
                     bm, geom=side_edges+side_faces+offset_edges+offset_verts,
-                    context=1)
+                    context=2)
                 extended_verts -= set(offset_verts)
 
         extended = extended_verts.copy()
         for v in extended_verts:
             extended.update(v.link_edges)
             extended.update(v.link_faces)
-        bmesh.ops.delete(bm, geom=list(extended), context=1)
+        bmesh.ops.delete(bm, geom=list(extended), context=2)
 
     @staticmethod
     def skip_zero_length_edges(floop, normal=None, reverse=False):
