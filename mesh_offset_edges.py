@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 14),
+    "version": (0, 1, 15),
     "blender": (2, 70, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -132,7 +132,6 @@ class OffsetEdges(bpy.types.Operator):
                         "No edges selected.")
             return None
 
-        #ti = perf_counter()
         v_es_pairs = dict()
         self.selected_verts = selected_verts= \
             set(v for e in selected_edges for v in e.verts)
@@ -149,11 +148,9 @@ class OffsetEdges(bpy.types.Operator):
                     self.report({'WARNING'},
                                 "Edge polls detected. Select non-branching edge loops")
                     return None
-        #print("Time_v_es_pair:", perf_counter() - ti)
 
         if self.follow_face:
             self.e_lp_pairs = e_lp_pairs = dict()
-            #ti = perf_counter()
             for e in selected_edges:
                 loops = []
                 for lp in e.link_loops:
@@ -166,7 +163,6 @@ class OffsetEdges(bpy.types.Operator):
                             loops.append(lp)
                 else:
                     e_lp_pairs[e] = loops
-            #print("Time_e_lp_pair:", perf_counter() - ti)
 
         if mirror_planes:
             for v in end_verts:
@@ -243,7 +239,6 @@ class OffsetEdges(bpy.types.Operator):
         mirror_v_p_pairs_new = dict()
         self.v_v_pairs = v_v_pairs = dict()  # keys is offset vert,
                                              # values is original vert.
-        #ti = perf_counter()
         orig_verts = self.selected_verts
         for e in side_edges:
             v1, v2 = e.verts
@@ -263,7 +258,6 @@ class OffsetEdges(bpy.types.Operator):
                 # Offsetted vert should be on the mirror plane.
                 mirror_v_p_pairs_new[v_offset] = plane
         self.mirror_v_p_pairs = mirror_v_p_pairs_new
-        #print("Time_v_v_pairs:", perf_counter() - ti)
 
         self.img_faces = img_faces = bmesh.ops.edgeloop_fill(
             bm, edges=offset_edges, mat_nr=0, use_smooth=False)['faces']
@@ -272,7 +266,6 @@ class OffsetEdges(bpy.types.Operator):
             fl.edge: fl.link_loop_radial_next.link_loop_next.link_loop_next.edge
             for face in img_faces for fl in face.loops}
 
-        #ti = perf_counter()
         if self.follow_face:
             e_lp_pairs = self.e_lp_pairs
             self.e_lp_pairs = {
@@ -282,7 +275,6 @@ class OffsetEdges(bpy.types.Operator):
             self.calc_average_fnorm()
             e_fn_pairs = self.e_fn_pairs
             for face in img_faces:
-                #face.loops.index_update()
                 for fl in face.loops:
                     fn = e_fn_pairs[fl.edge]
                     if fn:
@@ -293,7 +285,6 @@ class OffsetEdges(bpy.types.Operator):
             for face in img_faces:
                 if face.normal[2] < .0:
                     face.normal_flip()
-        #print("Time_calc_average_fnorm():", perf_counter() - ti)
 
         return img_faces
 
@@ -367,9 +358,10 @@ class OffsetEdges(bpy.types.Operator):
         extended_verts = self.extended_verts
         v_v_pairs = self.v_v_pairs
 
+        for e in self.offset_edges:
+            e.select = True
+
         if self.geometry_mode == 'extrude':
-            for f in side_faces:
-                f.select = True
             for face in img_faces:
                 flip = True if self.flip else False
 
@@ -425,7 +417,7 @@ class OffsetEdges(bpy.types.Operator):
             floop = (floop.link_loop_next if not reverse
                      else floop.link_loop_prev)
             if floop is floop_orig:
-                # All edges are zero length
+                # length of all edges are zero.
                 return None, None
             skip_co += 1
             length = floop.edge.calc_length()
@@ -622,7 +614,6 @@ class OffsetEdges(bpy.types.Operator):
         return vec_tangent, factor_act, factor_prev
 
     def execute(self, context):
-        #ti_all = perf_counter()
         edit_object = context.edit_object
         me = edit_object.data
         #bm = bmesh.from_edit_mesh(me)  # This method causes blender crash
@@ -636,17 +627,13 @@ class OffsetEdges(bpy.types.Operator):
         if self.mirror_modifier:
             mirror_planes = self.get_mirror_planes(edit_object)
 
-        #ti = perf_counter()
         e_loops = self.create_edgeloops(bm, mirror_planes)
         if e_loops is None:
             bm.free()
             bpy.ops.object.editmode_toggle()
             return {'CANCELLED'}
-        #print("Time1:", perf_counter() - ti)
 
-        #ti = perf_counter()
         fs = self.create_geometry(bm, e_loops)
-        #print("Time2:", perf_counter() - ti)
         self.should_flip = should_flip =set()
         # includes faces, side faces around which should flip its normal
         # later in clean_geometry()
@@ -661,7 +648,6 @@ class OffsetEdges(bpy.types.Operator):
         end_align, end_verts = self.end_align_edge, self.end_verts
         is_hole = self.is_hole
 
-        #ti = perf_counter()
         for f in fs:
             width = self.width if not self.flip else -self.width
             normal = f.normal if not follow_face else None
@@ -717,7 +703,6 @@ class OffsetEdges(bpy.types.Operator):
                 vec_tan, factor_act, factor_prev = vecs
                 floop.vert.co += \
                     width * min(factor_act, factor_prev) * vec_tan
-        #print("Time3:", perf_counter() - ti)
 
         if self.mirror_modifier:
             self.apply_mirror()
@@ -728,7 +713,6 @@ class OffsetEdges(bpy.types.Operator):
         bm.to_mesh(me)
         bm.free()
         bpy.ops.object.editmode_toggle()
-        #print("*********TIME_ALL:", perf_counter() - ti_all)
         return {'FINISHED'}
 
     def invoke(self, context, event):
