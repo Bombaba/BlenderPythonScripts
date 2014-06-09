@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 15),
+    "version": (0, 1, 16),
     "blender": (2, 70, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -64,9 +64,9 @@ class OffsetEdges(bpy.types.Operator):
     follow_face = bpy.props.BoolProperty(
         name="Follow Face", default=False,
         description="Offset along faces around")
-    end_align_edge = bpy.props.BoolProperty(
-        name="Align Ends with Edges", default=False,
-        description="Align End vertices with edges")
+    align_end = bpy.props.BoolProperty(
+        name="Align End", default=False,
+        description="Align vertices at the ends of offsetted edge loops with adjacent edges")
     flip = bpy.props.BoolProperty(
         name="Flip", default=False,
         description="Flip direction")
@@ -93,7 +93,7 @@ class OffsetEdges(bpy.types.Operator):
 
         layout.prop(self, 'width')
         layout.prop(self, 'flip')
-        layout.prop(self, 'end_align_edge')
+        layout.prop(self, 'align_end')
         layout.prop(self, 'follow_face')
 
         for m in context.edit_object.modifiers:
@@ -473,7 +473,7 @@ class OffsetEdges(bpy.types.Operator):
 
     def get_tangent(self, loop_act, loop_prev,
                     f_normal_act=None, f_normal_prev=None,
-                    threshold=1.0e-4, end_align=False, end_verts=None):
+                    threshold=1.0e-4, align_end=False, end_verts=None):
         def decompose_vector(vec, vec_s, vec_t):
             det_xy = vec_s.x * vec_t.y - vec_s.y * vec_t.x
             if det_xy:
@@ -599,7 +599,7 @@ class OffsetEdges(bpy.types.Operator):
                     vec_tangent.normalize()
                 else:
                     vec_tangent = f_cross
-        elif end_align and loop_act.vert in end_verts:
+        elif align_end and loop_act.vert in end_verts:
             inner = self.get_inner_vec(loop_act)
             if inner:
                 vec_tangent = \
@@ -645,7 +645,7 @@ class OffsetEdges(bpy.types.Operator):
         threshold = self.threshold
         skip_zero_length_edges = self.skip_zero_length_edges
         get_tangent = self.get_tangent
-        end_align, end_verts = self.end_align_edge, self.end_verts
+        align_end, end_verts = self.align_end, self.end_verts
         is_hole = self.is_hole
 
         for f in fs:
@@ -681,7 +681,7 @@ class OffsetEdges(bpy.types.Operator):
 
                 tangent = get_tangent(
                     loop_act, loop_prev, n1, n2, threshold,
-                    end_align, end_verts)
+                    align_end, end_verts)
 
                 if follow_face and co_hole_check:
                     co_hole_check -= 1
