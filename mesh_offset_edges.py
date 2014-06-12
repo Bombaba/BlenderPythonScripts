@@ -37,7 +37,7 @@ import bpy
 import bmesh
 from bmesh.types import BMVert, BMEdge, BMFace, BMLoop
 from mathutils import Vector, Quaternion
-#from time import perf_counter
+# from time import perf_counter
 
 X_UP = Vector((1.0, .0, .0))
 Y_UP = Vector((.0, 1.0, .0))
@@ -133,9 +133,9 @@ class OffsetEdges(bpy.types.Operator):
             return None
 
         v_es_pairs = dict()
-        self.selected_verts = selected_verts= \
+        self.selected_verts = selected_verts = \
             set(v for e in selected_edges for v in e.verts)
-        self.end_verts = end_verts= selected_verts.copy()
+        self.end_verts = end_verts = selected_verts.copy()
         for e in selected_edges:
             for v in e.verts:
                 edges = v_es_pairs.get(v)
@@ -231,14 +231,17 @@ class OffsetEdges(bpy.types.Operator):
         bmesh.ops.recalc_face_normals(bm, faces=side_faces)
         self.side_edges = side_edges = \
             [e.link_loops[0].link_loop_next.edge for e in offset_edges]
-        self.side_edges_set = set(side_edges) # Used in get_inner_vec()
-                                              # and apply_mirror()
+
+        # Used in get_inner_vec() and apply_mirror()
+        self.side_edges_set = set(side_edges)
 
         extended_verts, end_verts = self.extended_verts, self.end_verts
         mirror_v_p_pairs = self.mirror_v_p_pairs
         mirror_v_p_pairs_new = dict()
-        self.v_v_pairs = v_v_pairs = dict()  # keys is offset vert,
-                                             # values is original vert.
+
+        # keys is offset vert, values is original vert.
+        self.v_v_pairs = v_v_pairs = dict()
+
         orig_verts = self.selected_verts
         for e in side_edges:
             v1, v2 = e.verts
@@ -470,7 +473,6 @@ class OffsetEdges(bpy.types.Operator):
                 v.co = (point + t * direction)[:3]
                 break
 
-
     def get_tangent(self, loop_act, loop_prev,
                     f_normal_act=None, f_normal_prev=None,
                     threshold=1.0e-4, align_end=False, end_verts=None):
@@ -616,9 +618,7 @@ class OffsetEdges(bpy.types.Operator):
     def execute(self, context):
         edit_object = context.edit_object
         me = edit_object.data
-        #bm = bmesh.from_edit_mesh(me)  # This method causes blender crash
-                                        # if an error occured during script
-                                        # execution.
+
         bpy.ops.object.editmode_toggle()
         bm = bmesh.new()
         bm.from_mesh(me)
@@ -634,7 +634,7 @@ class OffsetEdges(bpy.types.Operator):
             return {'CANCELLED'}
 
         fs = self.create_geometry(bm, e_loops)
-        self.should_flip = should_flip =set()
+        self.should_flip = should_flip = set()
         # includes faces, side faces around which should flip its normal
         # later in clean_geometry()
 
@@ -709,7 +709,6 @@ class OffsetEdges(bpy.types.Operator):
 
         self.clean_geometry(bm)
 
-        #bmesh.update_edit_mesh(me)
         bm.to_mesh(me)
         bm.free()
         bpy.ops.object.editmode_toggle()
@@ -743,13 +742,11 @@ def draw_item(self, context):
 def register():
     bpy.utils.register_class(OffsetEdges)
     bpy.types.VIEW3D_MT_edit_mesh_edges.append(draw_item)
-    #bpy.types.VIEW3D_PT_tools_meshedit.append(draw_item)
 
 
 def unregister():
     bpy.utils.unregister_class(OffsetEdges)
     bpy.types.VIEW3D_MT_edit_mesh_edges.remove(draw_item)
-    #bpy.types.VIEW3D_PT_tools_meshedit.remove(draw_item)
 
 
 if __name__ == '__main__':
