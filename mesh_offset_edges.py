@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 16),
+    "version": (0, 1, 17),
     "blender": (2, 70, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -55,7 +55,7 @@ class OffsetEdges(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     width = bpy.props.FloatProperty(
-        name="Width", default=.2, precision=3, step=0.05)
+        name="Width", default=.2, precision=4, step=1)
     geometry_mode = bpy.props.EnumProperty(
         items=[('offset', "Offset", "Offset edges"),
                ('extrude', "Extrude", "Extrude edges"),
@@ -75,7 +75,7 @@ class OffsetEdges(bpy.types.Operator):
         description="Take into account for Mirror modifier")
 
     threshold = bpy.props.FloatProperty(
-        name="Threshold", default=1.0e-4, step=1.0e-5,
+        name="Threshold", default=1.0e-4, step=.1,
         description="Angle threshold which determines folding edges",
         options={'HIDDEN'})
     limit_hole_check = bpy.props.IntProperty(
