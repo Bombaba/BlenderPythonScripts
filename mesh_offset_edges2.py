@@ -341,13 +341,20 @@ def extrude_edges(bm, set_edges_orig):
     geom['faces'] = set(extruded[n_verts + n_edges:])
     geom['side'] = set(e for v in verts for e in v.link_edges if e not in edges)
 
-    for e in edges:
-        e.select = True
     return geom
 
-def clean_geometry(bm, geom):
-    lis_geom = list(geom['side']) + list(geom['faces'])
-    bmesh.ops.delete(bm, geom=lis_geom, context=2)
+def clean_geometry(bm, mode, set_edges_orig, geom_ex=None):
+    for f in bm.faces:
+        f.select = False
+    if geom_ex:
+        for e in geom_ex['edges']:
+            e.select = True
+        if mode == 'offset':
+            lis_geom = list(geom_ex['side']) + list(geom_ex['faces'])
+            bmesh.ops.delete(bm, geom=lis_geom, context=2)
+    else:
+        for e in set_edges_orig:
+            e.select = True
 
 
 class OffsetEdges(bpy.types.Operator):
@@ -525,8 +532,7 @@ class OffsetEdges(bpy.types.Operator):
                 verts = get_offset_verts(verts, edges, geom_ex)
                 do_offset(width, depth, verts, directions)
 
-        if self.geometry_mode == 'offset':
-            clean_geometry(bm, geom_ex)
+        clean_geometry(bm, self.geometry_mode, set_edges_orig, geom_ex)
 
         bm.to_mesh(me)
         bm.free()
