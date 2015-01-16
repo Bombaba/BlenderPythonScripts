@@ -573,20 +573,26 @@ class OffsetEdges(bpy.types.Operator):
         return self.execute(context)
 
 
-def draw_item(self, context):
-    self.layout.operator_context = 'INVOKE_DEFAULT'
-    self.layout.operator_menu_enum('mesh.offset_edges', 'geometry_mode')
+class OffsetEdgesOperatorPanel(bpy.types.Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    #bl_context = "editmode"
+    bl_label = "Offset Edges"
+    @classmethod
+    def poll(cls, context):
+        return (context.mode == 'EDIT_MESH')
+    
+    def draw(self, context):
+        self.layout.operator_context = 'INVOKE_DEFAULT'
+        self.layout.operator_menu_enum('mesh.offset_edges', 'geometry_mode')
 
 
 def register():
-    bpy.utils.register_class(OffsetEdges)
-    bpy.types.VIEW3D_MT_edit_mesh_edges.append(draw_item)
-
+    bpy.utils.register_module(__name__)
 
 def unregister():
-    bpy.utils.unregister_class(OffsetEdges)
-    bpy.types.VIEW3D_MT_edit_mesh_edges.remove(draw_item)
+    bpy.utils.unregister_module(__name__)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     register()
