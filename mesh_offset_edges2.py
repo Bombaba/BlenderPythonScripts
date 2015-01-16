@@ -32,11 +32,11 @@ bl_info = {
     "category": "Mesh"}
 
 import math
-from math import sin, pi
+from math import sin, cos, pi
 import bpy
 import bmesh
 from mathutils import Vector
-from time import perf_counter
+#from time import perf_counter
 
 X_UP = Vector((1.0, .0, .0))
 Y_UP = Vector((.0, 1.0, .0))
@@ -378,6 +378,15 @@ class OffsetEdges(bpy.types.Operator):
     flip_depth = bpy.props.BoolProperty(
         name="Flip Depth", default=False,
         description="Flip depth direction")
+    angle_mode = bpy.props.BoolProperty(
+        name="Angle Mode", default=True,
+        description="Offset based on angle")
+    angle = bpy.props.FloatProperty(
+        name="Angle", default=0, step=.1, subtype='ANGLE',
+        description="Angle")
+    flip_angle = bpy.props.BoolProperty(
+        name="Flip Angle", default=False,
+        description="Flip Angle")
     follow_face = bpy.props.BoolProperty(
         name="Follow Face", default=False,
         description="Offset along faces around")
@@ -388,7 +397,7 @@ class OffsetEdges(bpy.types.Operator):
         name="Edge Rail Only End", default=False,
         description="Apply edge rail to end verts only")
     threshold = bpy.props.FloatProperty(
-        name="Threshold", default=1.0e-4, step=.1,
+        name="Threshold", default=1.0e-4, step=.1, subtype='ANGLE',
         description="Angle threshold which determines straight or folding edges",
         options={'HIDDEN'})
 
@@ -400,11 +409,15 @@ class OffsetEdges(bpy.types.Operator):
         layout = self.layout
         layout.prop(self, 'geometry_mode', text="")
 
+        layout.prop(self, 'angle_mode')
         layout.prop(self, 'width')
         layout.prop(self, 'flip_width')
-
-        layout.prop(self, 'depth')
-        layout.prop(self, 'flip_depth')
+        if self.angle_mode:
+            layout.prop(self, 'angle')
+            layout.prop(self, 'flip_angle')
+        else:
+            layout.prop(self, 'depth')
+            layout.prop(self, 'flip_depth')
 
         layout.prop(self, 'follow_face')
 
@@ -421,7 +434,7 @@ class OffsetEdges(bpy.types.Operator):
         return vec_right, vec_up, vec_front
 
     def execute(self, context):
-        time_start = perf_counter()
+        #time_start = perf_counter()
 
         edit_object = context.edit_object
         me = edit_object.data
@@ -460,12 +473,14 @@ class OffsetEdges(bpy.types.Operator):
         edge_rail = self.edge_rail
         er_only_end = self.edge_rail_only_end
         threshold = self.threshold
-        width = self.width
-        if self.flip_width:
-            width *= -1
-        depth = self.depth
-        if self.flip_depth:
-            depth *= -1
+
+        width = self.width if not self.flip_width else -self.width
+        if not self.angle_mode:
+            depth = self.depth if not self.flip_depth else -self.depth
+        else:
+            angle = self.angle if not self.flip_angle else -self.angle
+            width = width * cos(angle)
+            depth = width * sin(angle)
 
         for lp in loops:
             verts, edges = lp[::2], lp[1::2]
@@ -538,7 +553,7 @@ class OffsetEdges(bpy.types.Operator):
         bm.free()
         bpy.ops.object.editmode_toggle()
 
-        print("Time of offset_edges: ", perf_counter() - time_start)
+        #print("Time of offset_edges: ", perf_counter() - time_start)
         return {'FINISHED'}
 
     def invoke(self, context, event):
