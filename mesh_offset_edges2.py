@@ -36,7 +36,7 @@ from math import sin, cos, pi
 import bpy
 import bmesh
 from mathutils import Vector
-#from time import perf_counter
+from time import perf_counter
 
 X_UP = Vector((1.0, .0, .0))
 Y_UP = Vector((.0, 1.0, .0))
@@ -260,23 +260,6 @@ def get_normals(lp_normal, ix_r, ix_l, adj_faces):
 
     return vec_up, normal_r, normal_l
 
-
-def get_offset_verts(verts, edges, geom_ex):
-    if verts[0] is verts[-1]:
-        # Real loop
-        verts = verts[:-1]
-    if geom_ex:
-        geom_s = geom_ex['side']
-        verts_ex = []
-        for v in verts:
-            for e in v.link_edges:
-                if e in geom_s:
-                    verts_ex.append(e.other_vert(v))
-                    break
-        #assert len(verts) == len(verts_ex)
-        verts = verts_ex
-    return verts
-
 def get_adj_faces(edges):
     adj_faces = []
     adj_exist = False
@@ -328,8 +311,19 @@ def get_cross_rail(vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l, threshol
     else:
         return None
 
-def do_offset(width, depth, verts, vec_directions):
-    for v, (t, u) in zip(verts, vec_directions):
+def do_offset(width, depth, verts, directions, geom_ex):
+    if geom_ex:
+        geom_s = geom_ex['side']
+        verts_ex = []
+        for v in verts:
+            for e in v.link_edges:
+                if e in geom_s:
+                    verts_ex.append(e.other_vert(v))
+                    break
+        #assert len(verts) == len(verts_ex)
+        verts = verts_ex
+
+    for v, (t, u) in zip(verts, directions):
         v.co += width * t + depth * u
 
 def extrude_edges(bm, set_edges_orig):
@@ -345,7 +339,7 @@ def extrude_edges(bm, set_edges_orig):
 
     return geom
 
-def clean_geometry(bm, mode, set_edges_orig, geom_ex=None):
+def clean(bm, mode, set_edges_orig, geom_ex=None):
     for f in bm.faces:
         f.select = False
     if geom_ex:
@@ -357,6 +351,81 @@ def clean_geometry(bm, mode, set_edges_orig, geom_ex=None):
     else:
         for e in set_edges_orig:
             e.select = True
+
+def get_verts_and_directions(lp, vec_upward, normal_fallback, **options):
+    # vec_front is used when loop normal couldn't calculated because the loop is straight.
+    # vec_upward is used in order to unify all loop normals when follow_face is off.
+    opt_follow_face = options['follow_face']
+    opt_edge_rail = options['edge_rail']
+    opt_er_only_end = options['edge_rail_only_end']
+    opt_threshold = options['threshold']
+
+    verts, edges = lp[::2], lp[1::2]
+    set_edges = set(edges)
+    lp_normal = calc_normal_from_verts(verts, fallback=normal_fallback)
+
+    ##### Loop order might be changed below.
+    if lp_normal.dot(vec_upward) < .0:
+        # Keep consistent loop normal.
+        verts.reverse()
+        edges.reverse()
+        lp_normal *= -1
+
+    if opt_follow_face:
+        adj_faces = get_adj_faces(edges)
+        if adj_faces:
+            verts, edges, lp_normal, adj_faces = \
+                reorder_loop(verts, edges, lp_normal, adj_faces)
+    else:
+        adj_faces = None
+    ##### Loop order might be changed above.
+
+    vec_edges = [(e.other_vert(v).co - v.co).normalized() for v, e in zip(verts, edges)]
+
+    if verts[0] is verts[-1]:
+        # Real loop. Popping last vertex.
+        verts.pop()
+        HALF_LOOP = False
+    else:
+        # Half loop
+        HALF_LOOP = True
+
+    len_verts = len(verts)
+    directions = []
+    for i in range(len_verts):
+        ix_r, ix_l = get_adj_ix(i, vec_edges, HALF_LOOP)
+        if ix_r is None:
+            break
+        vec_edge_r = vec_edges[ix_r]
+        vec_edge_l = -vec_edges[ix_l]
+
+        vec_up, normal_r, normal_l =  get_normals(lp_normal, ix_r, ix_l, adj_faces)
+        vec_tan = calc_tangent(vec_up, vec_edge_r, vec_edge_l, opt_threshold)
+
+        rail = None
+        if opt_edge_rail:
+            # Get edge rail.
+            # edge rail is a vector of inner edge.
+            if (not opt_er_only_end or
+                (HALF_LOOP and (i == 0 or i == len_verts-1))):
+                rail = get_edge_rail(verts[i], set_edges)
+        if (not rail) and normal_r and normal_l:
+            # Get cross rail.
+            # Cross rail is a cross vector between normal_r and normal_l.
+            rail = get_cross_rail(vec_tan, vec_edge_r, vec_edge_l,
+                                  normal_r, normal_l, opt_threshold)
+        if rail:
+            vec_tan = vec_tan.project(rail)
+            vec_tan.normalize()
+
+        vec_tan *= get_factor(vec_tan, vec_edge_r, vec_edge_l)
+        vec_up *= get_factor(vec_up, vec_edge_r, vec_edge_l)
+        directions.append((vec_tan, vec_up))
+
+    if directions:
+        return verts, directions
+    else:
+        return None, None
 
 
 class OffsetEdges(bpy.types.Operator):
@@ -380,8 +449,8 @@ class OffsetEdges(bpy.types.Operator):
     flip_depth = bpy.props.BoolProperty(
         name="Flip Depth", default=False,
         description="Flip depth direction")
-    angle_mode = bpy.props.BoolProperty(
-        name="Angle Mode", default=True,
+    use_angle = bpy.props.BoolProperty(
+        name="Use Angle", default=True,
         description="Offset based on angle")
     angle = bpy.props.FloatProperty(
         name="Angle", default=0, step=.1, subtype='ANGLE',
@@ -411,10 +480,10 @@ class OffsetEdges(bpy.types.Operator):
         layout = self.layout
         layout.prop(self, 'geometry_mode', text="")
 
-        layout.prop(self, 'angle_mode')
+        layout.prop(self, 'use_angle')
         layout.prop(self, 'width')
         layout.prop(self, 'flip_width')
-        if self.angle_mode:
+        if self.use_angle:
             layout.prop(self, 'angle')
             layout.prop(self, 'flip_angle')
         else:
@@ -427,16 +496,9 @@ class OffsetEdges(bpy.types.Operator):
         if self.edge_rail:
             layout.prop(self, 'edge_rail_only_end')
 
-    @staticmethod
-    def get_view_vecs(context):
-        mat_view = context.region_data.view_matrix.to_3x3()
-        vec_right = Vector(mat_view[0])
-        vec_up = Vector(mat_view[1])
-        vec_front = Vector(mat_view[2])
-        return vec_right, vec_up, vec_front
 
     def execute(self, context):
-        #time_start = perf_counter()
+        time_start = perf_counter()
 
         edit_object = context.edit_object
         me = edit_object.data
@@ -444,14 +506,6 @@ class OffsetEdges(bpy.types.Operator):
         bpy.ops.object.editmode_toggle()
         bm = bmesh.new()
         bm.from_mesh(me)
-
-
-        #vec_front = Vector(context.region_data.view_matrix[2][:3])
-        vec_front = Z_UP
-        # vec_front is used when loop normal cannot be calculated.
-        vec_upward = (X_UP + Y_UP + Z_UP).normalized()
-        # vec_upward is used to unify loop normals when follow_face is off.
-
 
         set_edges_orig = collect_edges(bm)
         if set_edges_orig is None:
@@ -467,6 +521,21 @@ class OffsetEdges(bpy.types.Operator):
             bpy.ops.object.editmode_toggle()
             return {'CANCELLED'}
 
+        if self.use_angle:
+            w = self.width if not self.flip_width else -self.width
+            angle = self.angle if not self.flip_angle else -self.angle
+            width = w * cos(angle)
+            depth = w * sin(angle)
+        else:
+            width = self.width if not self.flip_width else -self.width
+            depth = self.depth if not self.flip_depth else -self.depth
+
+        vec_upward = (X_UP + Y_UP + Z_UP).normalized()
+        # vec_upward is used to unify loop normals when follow_face is off.
+        normal_fallback = Z_UP
+        #normal_fallback = Vector(context.region_data.view_matrix[2][:3])
+        # normal_fallback is used when loop normal cannot be calculated.
+
         if self.geometry_mode == 'move':
             geom_ex = None
         else:
@@ -476,88 +545,21 @@ class OffsetEdges(bpy.types.Operator):
         edge_rail = self.edge_rail
         er_only_end = self.edge_rail_only_end
         threshold = self.threshold
-
-        if not self.angle_mode:
-            width = self.width if not self.flip_width else -self.width
-            depth = self.depth if not self.flip_depth else -self.depth
-        else:
-            w = self.width if not self.flip_width else -self.width
-            angle = self.angle if not self.flip_angle else -self.angle
-            width = w * cos(angle)
-            depth = w * sin(angle)
-
         for lp in loops:
-            verts, edges = lp[::2], lp[1::2]
-            lp_normal = calc_normal_from_verts(verts, fallback=vec_front)
+            verts, directions = get_verts_and_directions(
+                lp, vec_upward, normal_fallback,
+                follow_face=follow_face, edge_rail=edge_rail,
+                edge_rail_only_end=er_only_end, threshold=threshold)
+            if verts:
+                do_offset(width, depth, verts, directions, geom_ex)
 
-            ##### Loop order might be changed below.
-            if lp_normal.dot(vec_upward) < .0:
-                # Keep consistent loop normal.
-                verts.reverse()
-                edges.reverse()
-                lp_normal *= -1
-
-            if follow_face:
-                adj_faces = get_adj_faces(edges)
-                if adj_faces:
-                    verts, edges, lp_normal, adj_faces = \
-                        reorder_loop(verts, edges, lp_normal, adj_faces)
-            else:
-                adj_faces = None
-            ##### Loop order might be changed above.
-
-            vec_edges = [(e.other_vert(v).co - v.co).normalized() for v, e in zip(verts, edges)]
-
-            if verts[0] is verts[-1]:
-                # Real loop.
-                len_verts = len(verts) -1
-                HALF_LOOP = False
-            else:
-                # Half loop
-                len_verts = len(verts)
-                HALF_LOOP = True
-            directions = []
-            for i in range(len_verts):
-                ix_r, ix_l = get_adj_ix(i, vec_edges, HALF_LOOP)
-                if ix_r is None:
-                    break
-                vec_edge_r = vec_edges[ix_r]
-                vec_edge_l = -vec_edges[ix_l]
-
-                vec_up, normal_r, normal_l =  get_normals(lp_normal, ix_r, ix_l, adj_faces)
-                vec_tan = calc_tangent(vec_up, vec_edge_r, vec_edge_l, threshold)
-
-                rail = None
-                if edge_rail:
-                    # Get edge rail.
-                    # edge rail is a vector of inner edge.
-                    if (not er_only_end or
-                        (HALF_LOOP and (i == 0 or i == len_verts-1))):
-                        rail = get_edge_rail(verts[i], set_edges_orig)
-                if (not rail) and normal_r and normal_l:
-                    # Get cross rail.
-                    # Cross rail is a cross vector between normal_r and normal_l.
-                    rail = get_cross_rail(vec_tan, vec_edge_r, vec_edge_l,
-                                          normal_r, normal_l, threshold)
-                if rail:
-                    vec_tan = vec_tan.project(rail)
-                    vec_tan.normalize()
-
-                vec_tan *= get_factor(vec_tan, vec_edge_r, vec_edge_l)
-                vec_up *= get_factor(vec_up, vec_edge_r, vec_edge_l)
-                directions.append((vec_tan, vec_up))
-
-            if directions:
-                verts = get_offset_verts(verts, edges, geom_ex)
-                do_offset(width, depth, verts, directions)
-
-        clean_geometry(bm, self.geometry_mode, set_edges_orig, geom_ex)
+        clean(bm, self.geometry_mode, set_edges_orig, geom_ex)
 
         bm.to_mesh(me)
         bm.free()
         bpy.ops.object.editmode_toggle()
 
-        #print("Time of offset_edges: ", perf_counter() - time_start)
+        print("Time of offset_edges: ", perf_counter() - time_start)
         return {'FINISHED'}
 
     def invoke(self, context, event):
