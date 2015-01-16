@@ -444,7 +444,8 @@ class OffsetEdges(bpy.types.Operator):
         bm.from_mesh(me)
 
 
-        vec_front = Vector(context.region_data.view_matrix[2][:3])
+        #vec_front = Vector(context.region_data.view_matrix[2][:3])
+        vec_front = Z_UP
         # vec_front is used when loop normal cannot be calculated.
         vec_upward = (X_UP + Y_UP + Z_UP).normalized()
         # vec_upward is used to unify loop normals when follow_face is off.
