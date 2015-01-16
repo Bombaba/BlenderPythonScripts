@@ -201,42 +201,31 @@ def get_adj_ix(ix_start, vec_edges, half_loop):
     # Get adjacent edge index, skipping zero length edges
     len_edges = len(vec_edges)
     if half_loop:
-        if ix_start == 0:
-            # Left most.
-            range_right = range(0, len_edges)
-            range_left = None
-        elif ix_start == len_edges:
-            # Right most.
-            range_right = None
-            range_left = range(len_edges - 1, -1, -1)
-        else:
-            range_right = range(ix_start, len_edges)
-            range_left = range(ix_start-1, -1, -1)
+        range_right = range(ix_start, len_edges)
+        range_left = range(ix_start-1, -1, -1)
     else:
         range_right = range(ix_start, ix_start+len_edges)
         range_left = range(ix_start-1, ix_start-1-len_edges, -1)
 
     ix_right = ix_left = None
-    if range_right:
-        for i in range_right:
-            # Right
-            i %= len_edges
-            if vec_edges[i] != ZERO_VEC:
-                ix_right = i
-                break
-    if range_left is None:
-        # Left most
-        ix_left = ix_right
-    else:
-        for i in range_left:
-            # Left
-            i %= len_edges
-            if vec_edges[i] != ZERO_VEC:
-                ix_left = i
-                break
-    if range_right is None:
-        # Right most
-        ix_right = ix_left
+    for i in range_right:
+        # Right
+        i %= len_edges
+        if vec_edges[i] != ZERO_VEC:
+            ix_right = i
+            break
+    for i in range_left:
+        # Left
+        i %= len_edges
+        if vec_edges[i] != ZERO_VEC:
+            ix_left = i
+            break
+    if half_loop:
+        # If index of one side is None, assign another index.
+        if ix_right is None:
+            ix_right = ix_left
+        if ix_left is None:
+            ix_left = ix_right
 
     return ix_right, ix_left
 
