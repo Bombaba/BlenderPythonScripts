@@ -325,6 +325,8 @@ def get_cross_rail(vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l, threshol
     cos = vec_tan.dot(vec_cross)
     if cos >= cos_min:
         return vec_cross
+    else:
+        return None
 
 def do_offset(width, depth, verts, vec_directions):
     for v, (t, u) in zip(verts, vec_directions):
