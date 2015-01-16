@@ -475,13 +475,14 @@ class OffsetEdges(bpy.types.Operator):
         er_only_end = self.edge_rail_only_end
         threshold = self.threshold
 
-        width = self.width if not self.flip_width else -self.width
         if not self.angle_mode:
+            width = self.width if not self.flip_width else -self.width
             depth = self.depth if not self.flip_depth else -self.depth
         else:
+            w = self.width if not self.flip_width else -self.width
             angle = self.angle if not self.flip_angle else -self.angle
-            width = width * cos(angle)
-            depth = width * sin(angle)
+            width = w * cos(angle)
+            depth = w * sin(angle)
 
         for lp in loops:
             verts, edges = lp[::2], lp[1::2]
