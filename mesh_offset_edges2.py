@@ -319,11 +319,11 @@ def get_cross_rail(vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l, threshol
 
     vec_cross = normal_r.cross(normal_l)
     vec_cross.normalize()
-    tan_side = vec_tan.cross(vec_edge_r).dot(vec_tan.cross(vec_edge_l))
-    cross_side = vec_cross.cross(vec_edge_r).dot(vec_cross.cross(vec_edge_l))
-    if tan_side * cross_side >= .0:
-        # This means sign of vec_cross is same as that of vec_tan,
-        # so both vectors are on the same side.
+    if vec_cross.dot(vec_tan) < .0:
+        vec_cross *= -1
+    cos_min = min(vec_tan.dot(vec_edge_r), vec_tan.dot(vec_edge_l))
+    cos = vec_tan.dot(vec_cross)
+    if cos >= cos_min:
         return vec_cross
 
 def do_offset(width, depth, verts, vec_directions):
