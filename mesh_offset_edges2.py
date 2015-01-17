@@ -512,8 +512,8 @@ class OffsetEdges(bpy.types.Operator):
         name="Use Angle", default=True,
         description="Offset based on angle")
     angle = bpy.props.FloatProperty(
-        name="Angle", default=0, step=.1, subtype='ANGLE',
-        description="Angle")
+        name="Angle", default=0, step=.1, min=-4*pi, max=4*pi,
+        subtype='ANGLE', description="Angle")
     flip_angle = bpy.props.BoolProperty(
         name="Flip Angle", default=False,
         description="Flip Angle")
