@@ -141,23 +141,23 @@ def collect_offset_edges(bm):
     return set_offset_edges
 
 def collect_loops(set_offset_edges):
-    set_offset_edges = set_offset_edges.copy()
+    set_edges_copy = set_offset_edges.copy()
 
     loops = []  # [v, e, v, e, ... , e, v]
-    while set_offset_edges:
-        edge_start = set_offset_edges.pop()
+    while set_edges_copy:
+        edge_start = set_edges_copy.pop()
         v_left, v_right = edge_start.verts
         lp = [v_left, edge_start, v_right]
         reverse = False
         while True:
             edge = None
             for e in v_right.link_edges:
-                if e in set_offset_edges:
+                if e in set_edges_copy:
                     if edge:
                         # Overlap detected.
                         return None
                     edge = e
-                    set_offset_edges.remove(e)
+                    set_edges_copy.remove(e)
             if edge:
                 v_right = edge.other_vert(v_right)
                 lp.extend((edge, v_right))
@@ -341,7 +341,62 @@ def clean(bm, mode, set_offset_edges, geom_ex=None):
         for e in set_offset_edges:
             e.select = True
 
-def get_verts_and_directions(lp, vec_upward, normal_fallback, **options):
+def collect_mirror_planes(edit_object):
+    mirror_planes = []
+    eob_mat_inv = edit_object.matrix_world.inverted()
+    for m in edit_object.modifiers:
+        if (m.type == 'MIRROR' and m.use_mirror_merge):
+            merge_limit = m.merge_threshold
+            if not m.mirror_object:
+                loc = ZERO_VEC
+                norm_x, norm_y, norm_z = X_UP, Y_UP, Z_UP
+            else:
+                mirror_mat_local = eob_mat_inv * m.mirror_object.matrix_world
+                loc = mirror_mat_local.to_translation()
+                norm_x, norm_y, norm_z, _ = mirror_mat_local.adjugated()
+                norm_x = norm_x.to_3d().normalized()
+                norm_y = norm_y.to_3d().normalized()
+                norm_z = norm_z.to_3d().normalized()
+            if m.use_x:
+                mirror_planes.append((loc, norm_x, merge_limit))
+            if m.use_y:
+                mirror_planes.append((loc, norm_y, merge_limit))
+            if m.use_z:
+                mirror_planes.append((loc, norm_z, merge_limit))
+    return mirror_planes
+
+def get_vert_mirror_pairs(set_offset_edges, mirror_planes):
+    set_edges_copy = set_offset_edges.copy()
+    vert_mirror_pairs = dict()
+    for e in set_offset_edges:
+        v1, v2 = e.verts
+        for mp in mirror_planes:
+            p_co, p_norm, mlimit = mp
+            v1_dist = abs(p_norm.dot(v1.co - p_co))
+            v2_dist = abs(p_norm.dot(v2.co - p_co))
+            if v1_dist <= mlimit:
+                # v1 is on a mirror plane.
+                vert_mirror_pairs[v1] = mp
+            if v2_dist <= mlimit:
+                # v2 is on a mirror plane.
+                vert_mirror_pairs[v2] = mp
+            if v1_dist <= mlimit and v2_dist <= mlimit:
+                # This edge is on a mirror_plane, so should not be offsetted.
+                set_edges_copy.remove(e)
+    return vert_mirror_pairs, set_edges_copy
+
+def get_mirror_rail(mirror_plane, vec_up):
+    p_norm = mirror_plane[1]
+    mirror_rail = vec_up.cross(p_norm)
+    if mirror_rail != ZERO_VEC:
+        # Project vec_up to mirror_plane
+        vec_up = vec_up - vec_up.project(p_norm)
+        vec_up.normalize()
+        return mirror_rail, vec_up
+    else:
+        return None, vec_up
+
+def get_verts_and_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options):
     # vec_front is used when loop normal couldn't calculated because the loop is straight.
     # vec_upward is used in order to unify all loop normals when follow_face is off.
     opt_follow_face = options['follow_face']
@@ -382,30 +437,41 @@ def get_verts_and_directions(lp, vec_upward, normal_fallback, **options):
     len_verts = len(verts)
     directions = []
     for i in range(len_verts):
+        v = verts[i]
+        if HALF_LOOP and (i == 0 or i == len_verts-1):
+            VERT_END = True
+        else:
+            VERT_END = False
         ix_r, ix_l = get_adj_ix(i, vec_edges, HALF_LOOP)
         if ix_r is None:
             break
         vec_edge_r = vec_edges[ix_r]
         vec_edge_l = -vec_edges[ix_l]
 
-        vec_up, normal_r, normal_l =  get_normals(lp_normal, ix_r, ix_l, adj_faces)
+        vec_up, normal_r, normal_l = get_normals(lp_normal, ix_r, ix_l, adj_faces)
         vec_tan = calc_tangent(vec_up, vec_edge_r, vec_edge_l, opt_threshold)
 
-        rail = None
-        if opt_edge_rail:
-            # Get edge rail.
-            # edge rail is a vector of inner edge.
-            if (not opt_er_only_end or
-                (HALF_LOOP and (i == 0 or i == len_verts-1))):
-                rail = get_edge_rail(verts[i], set_edges)
-        if (not rail) and normal_r and normal_l:
-            # Get cross rail.
-            # Cross rail is a cross vector between normal_r and normal_l.
-            rail = get_cross_rail(vec_tan, vec_edge_r, vec_edge_l,
-                                  normal_r, normal_l, opt_threshold)
-        if rail:
-            vec_tan = vec_tan.project(rail)
-            vec_tan.normalize()
+        if vec_tan != ZERO_VEC:
+            # Project vec_tan to one of rail vector.
+            rail = None
+            if vert_mirror_pairs and VERT_END:
+                if v in vert_mirror_pairs:
+                    rail, vec_up = get_mirror_rail(vert_mirror_pairs[v], vec_up)
+            if opt_edge_rail:
+                # Get edge rail.
+                # edge rail is a vector of inner edge.
+                if (not opt_er_only_end) or VERT_END:
+                    rail = get_edge_rail(v, set_edges)
+            if (not rail) and normal_r and normal_l:
+                # Get cross rail.
+                # Cross rail is a cross vector between normal_r and normal_l.
+                rail = get_cross_rail(vec_tan, vec_edge_r, vec_edge_l,
+                                            normal_r, normal_l, opt_threshold)
+            if rail:
+                vec_tan = vec_tan.project(rail)
+                vec_tan.normalize()
+                # Make vec_up perpendicular to vec_tan.
+                vec_up -= vec_up.project(rail)
 
         vec_tan *= get_factor(vec_tan, vec_edge_r, vec_edge_l)
         vec_up *= get_factor(vec_up, vec_edge_r, vec_edge_l)
@@ -450,6 +516,9 @@ class OffsetEdges(bpy.types.Operator):
     follow_face = bpy.props.BoolProperty(
         name="Follow Face", default=False,
         description="Offset along faces around")
+    mirror_modifier = bpy.props.BoolProperty(
+        name="Mirror Modifier", default=False,
+        description="Take into account of Mirror modifier")
     edge_rail = bpy.props.BoolProperty(
         name="Edge Rail", default=False,
         description="Align vertices along inner edges")
@@ -481,10 +550,14 @@ class OffsetEdges(bpy.types.Operator):
 
         layout.prop(self, 'follow_face')
 
+        for m in context.edit_object.modifiers:
+            if m.type == 'MIRROR':
+                layout.prop(self, 'mirror_modifier')
+                break
+
         layout.prop(self, 'edge_rail')
         if self.edge_rail:
             layout.prop(self, 'edge_rail_only_end')
-
 
     def execute(self, context):
         time_start = perf_counter()
@@ -502,6 +575,17 @@ class OffsetEdges(bpy.types.Operator):
             bpy.ops.object.editmode_toggle()
             return {'CANCELLED'}
 
+        if self.mirror_modifier:
+            mirror_planes = collect_mirror_planes(edit_object)
+            vert_mirror_pairs, set_offset_edges = \
+                get_vert_mirror_pairs(set_offset_edges, mirror_planes)
+
+            if not set_offset_edges:
+                self.report({'WARNING'},
+                            "All selected edges are on mirror planes.")
+        else:
+            vert_mirror_pairs = None
+
         loops = collect_loops(set_offset_edges)
         if loops is None:
             self.report({'WARNING'},
@@ -509,6 +593,7 @@ class OffsetEdges(bpy.types.Operator):
             bm.free()
             bpy.ops.object.editmode_toggle()
             return {'CANCELLED'}
+
 
         if self.use_angle:
             w = self.width if not self.flip_width else -self.width
@@ -536,7 +621,7 @@ class OffsetEdges(bpy.types.Operator):
         threshold = self.threshold
         for lp in loops:
             verts, directions = get_verts_and_directions(
-                lp, vec_upward, normal_fallback,
+                lp, vec_upward, normal_fallback, vert_mirror_pairs,
                 follow_face=follow_face, edge_rail=edge_rail,
                 edge_rail_only_end=er_only_end, threshold=threshold)
             if verts:
