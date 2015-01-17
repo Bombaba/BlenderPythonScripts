@@ -472,6 +472,7 @@ def get_verts_and_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs,
                 vec_tan.normalize()
                 # Make vec_up perpendicular to vec_tan.
                 vec_up -= vec_up.project(rail)
+                vec_up.normalize()
 
         vec_tan *= get_factor(vec_tan, vec_edge_r, vec_edge_l)
         vec_up *= get_factor(vec_up, vec_edge_r, vec_edge_l)
