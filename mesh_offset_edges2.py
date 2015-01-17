@@ -366,24 +366,27 @@ def collect_mirror_planes(edit_object):
     return mirror_planes
 
 def get_vert_mirror_pairs(set_offset_edges, mirror_planes):
-    set_edges_copy = set_offset_edges.copy()
-    vert_mirror_pairs = dict()
-    for e in set_offset_edges:
-        v1, v2 = e.verts
-        for mp in mirror_planes:
-            p_co, p_norm, mlimit = mp
-            v1_dist = abs(p_norm.dot(v1.co - p_co))
-            v2_dist = abs(p_norm.dot(v2.co - p_co))
-            if v1_dist <= mlimit:
-                # v1 is on a mirror plane.
-                vert_mirror_pairs[v1] = mp
-            if v2_dist <= mlimit:
-                # v2 is on a mirror plane.
-                vert_mirror_pairs[v2] = mp
-            if v1_dist <= mlimit and v2_dist <= mlimit:
-                # This edge is on a mirror_plane, so should not be offsetted.
-                set_edges_copy.remove(e)
-    return vert_mirror_pairs, set_edges_copy
+    if mirror_planes:
+        set_edges_copy = set_offset_edges.copy()
+        vert_mirror_pairs = dict()
+        for e in set_offset_edges:
+            v1, v2 = e.verts
+            for mp in mirror_planes:
+                p_co, p_norm, mlimit = mp
+                v1_dist = abs(p_norm.dot(v1.co - p_co))
+                v2_dist = abs(p_norm.dot(v2.co - p_co))
+                if v1_dist <= mlimit:
+                    # v1 is on a mirror plane.
+                    vert_mirror_pairs[v1] = mp
+                if v2_dist <= mlimit:
+                    # v2 is on a mirror plane.
+                    vert_mirror_pairs[v2] = mp
+                if v1_dist <= mlimit and v2_dist <= mlimit:
+                    # This edge is on a mirror_plane, so should not be offsetted.
+                    set_edges_copy.remove(e)
+        return vert_mirror_pairs, set_edges_copy
+    else:
+        return None, set_offset_edges
 
 def get_mirror_rail(mirror_plane, vec_up):
     p_norm = mirror_plane[1]
@@ -551,17 +554,14 @@ class OffsetEdges(bpy.types.Operator):
 
         layout.prop(self, 'follow_face')
 
-        for m in context.edit_object.modifiers:
-            if m.type == 'MIRROR':
-                layout.prop(self, 'mirror_modifier')
-                break
+        layout.prop(self, 'mirror_modifier')
 
         layout.prop(self, 'edge_rail')
         if self.edge_rail:
             layout.prop(self, 'edge_rail_only_end')
 
     def execute(self, context):
-        time_start = perf_counter()
+        #time_start = perf_counter()
 
         edit_object = context.edit_object
         me = edit_object.data
@@ -634,7 +634,7 @@ class OffsetEdges(bpy.types.Operator):
         bm.free()
         bpy.ops.object.editmode_toggle()
 
-        print("Time of offset_edges: ", perf_counter() - time_start)
+        #print("Time of offset_edges: ", perf_counter() - time_start)
         return {'FINISHED'}
 
     def invoke(self, context, event):
