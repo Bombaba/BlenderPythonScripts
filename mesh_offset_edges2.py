@@ -120,7 +120,7 @@ def get_factor(vec_direction, vec_right, vec_left, func=max):
     else:
         return .0
 
-def collect_edges(bm):
+def collect_offset_edges(bm):
     set_offset_edges = set()
     for e in bm.edges:
         if e.select:
@@ -496,7 +496,7 @@ class OffsetEdges(bpy.types.Operator):
         bm = bmesh.new()
         bm.from_mesh(me)
 
-        set_offset_edges = collect_edges(bm)
+        set_offset_edges = collect_offset_edges(bm)
         if set_offset_edges is None:
             bm.free()
             bpy.ops.object.editmode_toggle()
