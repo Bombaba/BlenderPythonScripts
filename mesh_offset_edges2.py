@@ -121,7 +121,7 @@ def get_factor(vec_direction, vec_right, vec_left, func=max):
         return .0
 
 def collect_edges(bm):
-    set_edges_orig = set()
+    set_offset_edges = set()
     for e in bm.edges:
         if e.select:
             co_faces_selected = 0
@@ -131,33 +131,33 @@ def collect_edges(bm):
                     if co_faces_selected == 2:
                         break
             else:
-                set_edges_orig.add(e)
+                set_offset_edges.add(e)
 
-    if not set_edges_orig:
+    if not set_offset_edges:
         self.report({'WARNING'},
                     "No edges selected.")
         return None
 
-    return set_edges_orig
+    return set_offset_edges
 
-def collect_loops(set_edges_orig):
-    set_edges_orig = set_edges_orig.copy()
+def collect_loops(set_offset_edges):
+    set_offset_edges = set_offset_edges.copy()
 
     loops = []  # [v, e, v, e, ... , e, v]
-    while set_edges_orig:
-        edge_start = set_edges_orig.pop()
+    while set_offset_edges:
+        edge_start = set_offset_edges.pop()
         v_left, v_right = edge_start.verts
         lp = [v_left, edge_start, v_right]
         reverse = False
         while True:
             edge = None
             for e in v_right.link_edges:
-                if e in set_edges_orig:
+                if e in set_offset_edges:
                     if edge:
                         # Overlap detected.
                         return None
                     edge = e
-                    set_edges_orig.remove(e)
+                    set_offset_edges.remove(e)
             if edge:
                 v_right = edge.other_vert(v_right)
                 lp.extend((edge, v_right))
@@ -267,11 +267,11 @@ def get_adj_faces(edges):
     else:
         return None
 
-def get_edge_rail(vert, set_edges_orig):
+def get_edge_rail(vert, set_offset_edges):
     co_edge =  0
     vec_inner = None
     for e in vert.link_edges:
-        if not e.hide and e not in set_edges_orig:
+        if not e.hide and e not in set_offset_edges:
             v1, v2 = e.verts
             vec = v1.co - v2.co
             if vec != ZERO_VEC:
@@ -315,9 +315,9 @@ def do_offset(width, depth, verts, directions, geom_ex):
     for v, (t, u) in zip(verts, directions):
         v.co += width * t + depth * u
 
-def extrude_edges(bm, set_edges_orig):
-    extruded = bmesh.ops.extrude_edge_only(bm, edges=list(set_edges_orig))['geom']
-    n_edges = n_faces = len(set_edges_orig)
+def extrude_edges(bm, set_offset_edges):
+    extruded = bmesh.ops.extrude_edge_only(bm, edges=list(set_offset_edges))['geom']
+    n_edges = n_faces = len(set_offset_edges)
     n_verts = len(extruded) - n_edges - n_faces
 
     geom = dict()
@@ -328,7 +328,7 @@ def extrude_edges(bm, set_edges_orig):
 
     return geom
 
-def clean(bm, mode, set_edges_orig, geom_ex=None):
+def clean(bm, mode, set_offset_edges, geom_ex=None):
     for f in bm.faces:
         f.select = False
     if geom_ex:
@@ -338,7 +338,7 @@ def clean(bm, mode, set_edges_orig, geom_ex=None):
             lis_geom = list(geom_ex['side']) + list(geom_ex['faces'])
             bmesh.ops.delete(bm, geom=lis_geom, context=2)
     else:
-        for e in set_edges_orig:
+        for e in set_offset_edges:
             e.select = True
 
 def get_verts_and_directions(lp, vec_upward, normal_fallback, **options):
@@ -496,13 +496,13 @@ class OffsetEdges(bpy.types.Operator):
         bm = bmesh.new()
         bm.from_mesh(me)
 
-        set_edges_orig = collect_edges(bm)
-        if set_edges_orig is None:
+        set_offset_edges = collect_edges(bm)
+        if set_offset_edges is None:
             bm.free()
             bpy.ops.object.editmode_toggle()
             return {'CANCELLED'}
 
-        loops = collect_loops(set_edges_orig)
+        loops = collect_loops(set_offset_edges)
         if loops is None:
             self.report({'WARNING'},
                         "Overlap detected. Select non-overlap edge loops")
@@ -528,7 +528,7 @@ class OffsetEdges(bpy.types.Operator):
         if self.geometry_mode == 'move':
             geom_ex = None
         else:
-            geom_ex = extrude_edges(bm, set_edges_orig)
+            geom_ex = extrude_edges(bm, set_offset_edges)
 
         follow_face = self.follow_face
         edge_rail = self.edge_rail
@@ -542,7 +542,7 @@ class OffsetEdges(bpy.types.Operator):
             if verts:
                 do_offset(width, depth, verts, directions, geom_ex)
 
-        clean(bm, self.geometry_mode, set_edges_orig, geom_ex)
+        clean(bm, self.geometry_mode, set_offset_edges, geom_ex)
 
         bm.to_mesh(me)
         bm.free()
