@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 1, 17),
+    "version": (0, 2, 1),
     "blender": (2, 70, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -32,12 +32,11 @@ bl_info = {
     "category": "Mesh"}
 
 import math
-from math import sin, pi
+from math import sin, cos, pi
 import bpy
 import bmesh
-from bmesh.types import BMVert, BMEdge, BMFace, BMLoop
-from mathutils import Vector, Quaternion
-# from time import perf_counter
+from mathutils import Vector
+from time import perf_counter
 
 X_UP = Vector((1.0, .0, .0))
 Y_UP = Vector((.0, 1.0, .0))
@@ -48,39 +47,492 @@ ANGLE_180 = pi
 ANGLE_360 = 2 * pi
 
 
+def calc_normal_from_verts(verts, fallback=Z_UP):
+    # Calculate normal from verts using Newell's method.
+    normal = ZERO_VEC.copy()
+
+    verts_2 = verts[1:]
+    if verts[0] is not verts[-1]:
+        # Half loop.
+        verts_2.append(verts[0])
+    for v1, v2 in zip(verts, verts_2):
+        v1co, v2co = v1.co, v2.co
+        normal.x += (v1co.y - v2co.y) * (v1co.z + v2co.z)
+        normal.y += (v1co.z - v2co.z) * (v1co.x + v2co.x)
+        normal.z += (v1co.x - v2co.x) * (v1co.y + v2co.y)
+
+    normal.normalize()
+    if normal == ZERO_VEC:
+        normal = fallback
+
+    return normal
+
+def get_corner_type(vec_up, vec_right2d, vec_left2d, threshold=1.0e-4):
+    # vec_right2d and vec_left2d should be perpendicular to vec_up.
+    # All vectors in parameters should have been normalized.
+    if vec_right2d == vec_left2d == ZERO_VEC:
+        return 'FOLDING'
+    elif vec_right2d == ZERO_VEC or vec_left2d == ZERO_VEC:
+        return 'STRAIGHT'
+
+    angle = vec_right2d.angle(vec_left2d)
+    if angle < threshold:
+        return 'FOLDING'
+    elif angle > ANGLE_180 - threshold:
+        return 'STRAIGHT'
+    elif vec_right2d.cross(vec_left2d).dot(vec_up) > threshold:
+        return 'CONVEX'
+    else:
+        return 'CONCAVE'
+
+def calc_tangent(vec_up, vec_right, vec_left, threshold=1.0e-4):
+    vec_right2d = vec_right- vec_right.project(vec_up)
+    vec_right2d.normalize()
+    vec_left2d = vec_left- vec_left.project(vec_up)
+    vec_right2d.normalize()
+
+    corner = get_corner_type(vec_up, vec_right2d, vec_left2d, threshold)
+    if corner == 'FOLDING':
+        vec_tangent = ZERO_VEC
+    elif corner == 'STRAIGHT':
+        if vec_right2d.length >= vec_left2d.length:
+            vec_longer = vec_right2d
+        else:
+            vec_longer = -vec_left2d
+        vec_tangent = vec_longer.cross(vec_up)
+    elif corner == 'CONVEX':
+        vec_tangent = vec_right2d + vec_left2d
+        vec_tangent *= -1
+    elif corner == 'CONCAVE':
+        vec_tangent = vec_right2d + vec_left2d
+
+    vec_tangent.normalize()
+
+    return vec_tangent
+
+def get_factor(vec_direction, vec_right, vec_left, func=max):
+    if vec_direction == ZERO_VEC:
+        return .0
+
+    denominator = func(sin(vec_direction.angle(vec_right)), sin(vec_direction.angle(vec_left)))
+    if denominator != .0:
+        return 1.0 / denominator
+    else:
+        return .0
+
+def collect_offset_edges(bm):
+    set_offset_edges = set()
+    for e in bm.edges:
+        if e.select:
+            co_faces_selected = 0
+            for f in e.link_faces:
+                if f.select:
+                    co_faces_selected += 1
+                    if co_faces_selected == 2:
+                        break
+            else:
+                set_offset_edges.add(e)
+
+    if not set_offset_edges:
+        self.report({'WARNING'},
+                    "No edges selected.")
+        return None
+
+    return set_offset_edges
+
+def collect_loops(set_offset_edges):
+    set_edges_copy = set_offset_edges.copy()
+
+    loops = []  # [v, e, v, e, ... , e, v]
+    while set_edges_copy:
+        edge_start = set_edges_copy.pop()
+        v_left, v_right = edge_start.verts
+        lp = [v_left, edge_start, v_right]
+        reverse = False
+        while True:
+            edge = None
+            for e in v_right.link_edges:
+                if e in set_edges_copy:
+                    if edge:
+                        # Overlap detected.
+                        return None
+                    edge = e
+                    set_edges_copy.remove(e)
+            if edge:
+                v_right = edge.other_vert(v_right)
+                lp.extend((edge, v_right))
+                continue
+            else:
+                if v_right is v_left:
+                    # Real loop.
+                    loops.append(lp)
+                    break
+                elif reverse is False:
+                    # Right side of half loop.
+                    # Reversing the loop to operate same procedure on the left side.
+                    lp.reverse()
+                    v_right, v_left = v_left, v_right
+                    reverse = True
+                    continue
+                else:
+                    # Half loop, completed.
+                    loops.append(lp)
+                    break
+    return loops
+
+def reorder_loop(verts, edges, normal, adj_faces):
+    for i, adj_f in enumerate(adj_faces):
+        if adj_f is None:
+            continue
+        v1, v2 = verts[i], verts[i+1]
+        e = edges[i]
+        fv = tuple(adj_f.verts)
+        if fv[fv.index(v1)-1] is v2:
+            # Align loop direction
+            verts.reverse()
+            edges.reverse()
+            adj_faces.reverse()
+        if normal.dot(adj_f.normal) < .0:
+            normal *= -1
+        break
+    return verts, edges, normal, adj_faces
+
+def get_adj_ix(ix_start, vec_edges, half_loop):
+    # Get adjacent edge index, skipping zero length edges
+    len_edges = len(vec_edges)
+    if half_loop:
+        range_right = range(ix_start, len_edges)
+        range_left = range(ix_start-1, -1, -1)
+    else:
+        range_right = range(ix_start, ix_start+len_edges)
+        range_left = range(ix_start-1, ix_start-1-len_edges, -1)
+
+    ix_right = ix_left = None
+    for i in range_right:
+        # Right
+        i %= len_edges
+        if vec_edges[i] != ZERO_VEC:
+            ix_right = i
+            break
+    for i in range_left:
+        # Left
+        i %= len_edges
+        if vec_edges[i] != ZERO_VEC:
+            ix_left = i
+            break
+    if half_loop:
+        # If index of one side is None, assign another index.
+        if ix_right is None:
+            ix_right = ix_left
+        if ix_left is None:
+            ix_left = ix_right
+
+    return ix_right, ix_left
+
+def get_normals(lp_normal, ix_r, ix_l, adj_faces):
+    normal_r = normal_l = None
+    if adj_faces:
+        f_r, f_l = adj_faces[ix_r], adj_faces[ix_l]
+        if f_r:
+            normal_r = f_r.normal
+        if f_l:
+            normal_l = f_l.normal
+
+    if normal_r and normal_l:
+        vec_up = (normal_r + normal_l).normalized()
+        if vec_up == ZERO_VEC:
+            vec_up = lp_normal.copy()
+    elif normal_r or normal_l:
+        vec_up = (normal_r or normal_l).copy()
+    else:
+        vec_up = lp_normal.copy()
+
+    return vec_up, normal_r, normal_l
+
+def get_adj_faces(edges):
+    adj_faces = []
+    adj_exist = False
+    for e in edges:
+        face = None
+        for f in e.link_faces:
+            # Search an adjacent face.
+            # Selected face has precedance.
+            if not f.hide and f.normal != ZERO_VEC:
+                face = f
+                adj_exist = True
+                if f.select: break
+        adj_faces.append(face)
+    if adj_exist:
+        return adj_faces
+    else:
+        return None
+
+def get_edge_rail(vert, set_offset_edges):
+    co_edge =  0
+    vec_inner = None
+    for e in vert.link_edges:
+        if not e.hide and e not in set_offset_edges:
+            v_other = e.other_vert(vert)
+            vec = v_other.co - vert.co
+            if vec != ZERO_VEC:
+                co_edge += 1
+                vec_inner = vec
+                if co_edge == 2:
+                    return None
+    else:
+        return vec_inner
+
+def get_cross_rail(vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l, threshold=1.0e-4):
+    # Cross rail is a cross vector between normal_r and normal_l.
+    angle = normal_r.angle(normal_l)
+    if angle < threshold:
+        # normal_r and normal_l are almost same, no cross vector.
+        return None
+
+    vec_cross = normal_r.cross(normal_l)
+    vec_cross.normalize()
+    if vec_cross.dot(vec_tan) < .0:
+        vec_cross *= -1
+    cos_min = min(vec_tan.dot(vec_edge_r), vec_tan.dot(vec_edge_l))
+    cos = vec_tan.dot(vec_cross)
+    if cos >= cos_min:
+        return vec_cross
+    else:
+        return None
+
+def do_offset(width, depth, verts, directions, geom_ex):
+    if geom_ex:
+        geom_s = geom_ex['side']
+        verts_ex = []
+        for v in verts:
+            for e in v.link_edges:
+                if e in geom_s:
+                    verts_ex.append(e.other_vert(v))
+                    break
+        #assert len(verts) == len(verts_ex)
+        verts = verts_ex
+
+    for v, (t, u) in zip(verts, directions):
+        v.co += width * t + depth * u
+
+def extrude_edges(bm, set_offset_edges):
+    extruded = bmesh.ops.extrude_edge_only(bm, edges=list(set_offset_edges))['geom']
+    n_edges = n_faces = len(set_offset_edges)
+    n_verts = len(extruded) - n_edges - n_faces
+
+    geom = dict()
+    geom['verts'] = verts = set(extruded[:n_verts])
+    geom['edges'] = edges = set(extruded[n_verts:n_verts + n_edges])
+    geom['faces'] = set(extruded[n_verts + n_edges:])
+    geom['side'] = set(e for v in verts for e in v.link_edges if e not in edges)
+
+    return geom
+
+def clean(bm, mode, set_offset_edges, geom_ex=None):
+    for f in bm.faces:
+        f.select = False
+    if geom_ex:
+        for e in geom_ex['edges']:
+            e.select = True
+        if mode == 'offset':
+            lis_geom = list(geom_ex['side']) + list(geom_ex['faces'])
+            bmesh.ops.delete(bm, geom=lis_geom, context=2)
+    else:
+        for e in set_offset_edges:
+            e.select = True
+
+def collect_mirror_planes(edit_object):
+    mirror_planes = []
+    eob_mat_inv = edit_object.matrix_world.inverted()
+    for m in edit_object.modifiers:
+        if (m.type == 'MIRROR' and m.use_mirror_merge):
+            merge_limit = m.merge_threshold
+            if not m.mirror_object:
+                loc = ZERO_VEC
+                norm_x, norm_y, norm_z = X_UP, Y_UP, Z_UP
+            else:
+                mirror_mat_local = eob_mat_inv * m.mirror_object.matrix_world
+                loc = mirror_mat_local.to_translation()
+                norm_x, norm_y, norm_z, _ = mirror_mat_local.adjugated()
+                norm_x = norm_x.to_3d().normalized()
+                norm_y = norm_y.to_3d().normalized()
+                norm_z = norm_z.to_3d().normalized()
+            if m.use_x:
+                mirror_planes.append((loc, norm_x, merge_limit))
+            if m.use_y:
+                mirror_planes.append((loc, norm_y, merge_limit))
+            if m.use_z:
+                mirror_planes.append((loc, norm_z, merge_limit))
+    return mirror_planes
+
+def get_vert_mirror_pairs(set_offset_edges, mirror_planes):
+    if mirror_planes:
+        set_edges_copy = set_offset_edges.copy()
+        vert_mirror_pairs = dict()
+        for e in set_offset_edges:
+            v1, v2 = e.verts
+            for mp in mirror_planes:
+                p_co, p_norm, mlimit = mp
+                v1_dist = abs(p_norm.dot(v1.co - p_co))
+                v2_dist = abs(p_norm.dot(v2.co - p_co))
+                if v1_dist <= mlimit:
+                    # v1 is on a mirror plane.
+                    vert_mirror_pairs[v1] = mp
+                if v2_dist <= mlimit:
+                    # v2 is on a mirror plane.
+                    vert_mirror_pairs[v2] = mp
+                if v1_dist <= mlimit and v2_dist <= mlimit:
+                    # This edge is on a mirror_plane, so should not be offsetted.
+                    set_edges_copy.remove(e)
+        return vert_mirror_pairs, set_edges_copy
+    else:
+        return None, set_offset_edges
+
+def get_mirror_rail(mirror_plane, vec_up):
+    p_norm = mirror_plane[1]
+    mirror_rail = vec_up.cross(p_norm)
+    if mirror_rail != ZERO_VEC:
+        # Project vec_up to mirror_plane
+        vec_up = vec_up - vec_up.project(p_norm)
+        vec_up.normalize()
+        return mirror_rail, vec_up
+    else:
+        return None, vec_up
+
+def get_verts_and_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options):
+    # vec_front is used when loop normal couldn't calculated because the loop is straight.
+    # vec_upward is used in order to unify all loop normals when follow_face is off.
+    opt_follow_face = options['follow_face']
+    opt_edge_rail = options['edge_rail']
+    opt_er_only_end = options['edge_rail_only_end']
+    opt_threshold = options['threshold']
+
+    verts, edges = lp[::2], lp[1::2]
+    set_edges = set(edges)
+    lp_normal = calc_normal_from_verts(verts, fallback=normal_fallback)
+
+    ##### Loop order might be changed below.
+    if lp_normal.dot(vec_upward) < .0:
+        # Keep consistent loop normal.
+        verts.reverse()
+        edges.reverse()
+        lp_normal *= -1
+
+    if opt_follow_face:
+        adj_faces = get_adj_faces(edges)
+        if adj_faces:
+            verts, edges, lp_normal, adj_faces = \
+                reorder_loop(verts, edges, lp_normal, adj_faces)
+    else:
+        adj_faces = None
+    ##### Loop order might be changed above.
+
+    vec_edges = [(e.other_vert(v).co - v.co).normalized() for v, e in zip(verts, edges)]
+
+    if verts[0] is verts[-1]:
+        # Real loop. Popping last vertex.
+        verts.pop()
+        HALF_LOOP = False
+    else:
+        # Half loop
+        HALF_LOOP = True
+
+    len_verts = len(verts)
+    directions = []
+    for i in range(len_verts):
+        v = verts[i]
+        if HALF_LOOP and (i == 0 or i == len_verts-1):
+            VERT_END = True
+        else:
+            VERT_END = False
+        ix_r, ix_l = get_adj_ix(i, vec_edges, HALF_LOOP)
+        if ix_r is None:
+            break
+        vec_edge_r = vec_edges[ix_r]
+        vec_edge_l = -vec_edges[ix_l]
+
+        vec_up, normal_r, normal_l = get_normals(lp_normal, ix_r, ix_l, adj_faces)
+        vec_tan = calc_tangent(vec_up, vec_edge_r, vec_edge_l, opt_threshold)
+
+        if vec_tan != ZERO_VEC:
+            # Project vec_tan to one of rail vector.
+            rail = None
+            if vert_mirror_pairs and VERT_END:
+                if v in vert_mirror_pairs:
+                    rail, vec_up = get_mirror_rail(vert_mirror_pairs[v], vec_up)
+            if opt_edge_rail:
+                # Get edge rail.
+                # edge rail is a vector of inner edge.
+                if (not opt_er_only_end) or VERT_END:
+                    rail = get_edge_rail(v, set_edges)
+            if (not rail) and normal_r and normal_l:
+                # Get cross rail.
+                # Cross rail is a cross vector between normal_r and normal_l.
+                rail = get_cross_rail(vec_tan, vec_edge_r, vec_edge_l,
+                                            normal_r, normal_l, opt_threshold)
+            if rail:
+                vec_tan = vec_tan.project(rail)
+                vec_tan.normalize()
+                # Make vec_up perpendicular to vec_tan.
+                vec_up -= vec_up.project(rail)
+                vec_up.normalize()
+
+        vec_tan *= get_factor(vec_tan, vec_edge_r, vec_edge_l)
+        vec_up *= get_factor(vec_up, vec_edge_r, vec_edge_l)
+        directions.append((vec_tan, vec_up))
+
+    if directions:
+        return verts, directions
+    else:
+        return None, None
+
+
 class OffsetEdges(bpy.types.Operator):
     """Offset Edges."""
     bl_idname = "mesh.offset_edges"
     bl_label = "Offset Edges"
     bl_options = {'REGISTER', 'UNDO'}
 
-    width = bpy.props.FloatProperty(
-        name="Width", default=.2, precision=4, step=1)
     geometry_mode = bpy.props.EnumProperty(
         items=[('offset', "Offset", "Offset edges"),
                ('extrude', "Extrude", "Extrude edges"),
                ('move', "Move", "Move selected edges")],
         name="Geometory mode", default='offset')
+    width = bpy.props.FloatProperty(
+        name="Width", default=.2, precision=4, step=1)
+    flip_width = bpy.props.BoolProperty(
+        name="Flip Width", default=False,
+        description="Flip width direction")
+    depth = bpy.props.FloatProperty(
+        name="Depth", default=.0, precision=4, step=1)
+    flip_depth = bpy.props.BoolProperty(
+        name="Flip Depth", default=False,
+        description="Flip depth direction")
+    depth_mode = bpy.props.EnumProperty(
+        items=[('angle', "Angle", "Angle"),
+               ('depth', "Depth", "Depth")],
+        name="Depth mode", default='angle')
+    angle = bpy.props.FloatProperty(
+        name="Angle", default=0, step=.1, min=-4*pi, max=4*pi,
+        subtype='ANGLE', description="Angle")
+    flip_angle = bpy.props.BoolProperty(
+        name="Flip Angle", default=False,
+        description="Flip Angle")
     follow_face = bpy.props.BoolProperty(
         name="Follow Face", default=False,
         description="Offset along faces around")
-    align_end = bpy.props.BoolProperty(
-        name="Align End", default=False,
-        description="Align vertices at the ends of offsetted edge loops with adjacent edges")
-    flip = bpy.props.BoolProperty(
-        name="Flip", default=False,
-        description="Flip direction")
     mirror_modifier = bpy.props.BoolProperty(
         name="Mirror Modifier", default=False,
-        description="Take into account for Mirror modifier")
-
+        description="Take into account of Mirror modifier")
+    edge_rail = bpy.props.BoolProperty(
+        name="Edge Rail", default=False,
+        description="Align vertices along inner edges")
+    edge_rail_only_end = bpy.props.BoolProperty(
+        name="Edge Rail Only End", default=False,
+        description="Apply edge rail to end verts only")
     threshold = bpy.props.FloatProperty(
-        name="Threshold", default=1.0e-4, step=.1,
-        description="Angle threshold which determines folding edges",
-        options={'HIDDEN'})
-    limit_hole_check = bpy.props.IntProperty(
-        name="Limit Hole Check", default=5, min=0,
-        description="Limit number of hole check per edge loop",
+        name="Threshold", default=1.0e-4, step=.1, subtype='ANGLE',
+        description="Angle threshold which determines straight or folding edges",
         options={'HIDDEN'})
 
     @classmethod
@@ -90,532 +542,38 @@ class OffsetEdges(bpy.types.Operator):
     def draw(self, context):
         layout = self.layout
         layout.prop(self, 'geometry_mode', text="")
+        #layout.prop(self, 'geometry_mode', expand=True)
 
-        layout.prop(self, 'width')
-        layout.prop(self, 'flip')
-        layout.prop(self, 'align_end')
+        row = layout.row(align=True)
+        row.prop(self, 'width')
+        row.prop(self, 'flip_width', icon='ARROW_LEFTRIGHT', icon_only=True)
+
+        layout.prop(self, 'depth_mode', expand=True)
+        if self.depth_mode == 'angle':
+            d_mode = 'angle'
+            flip = 'flip_angle'
+        else:
+            d_mode = 'depth'
+            flip = 'flip_depth'
+        row = layout.row(align=True)
+        row.prop(self, d_mode)
+        row.prop(self, flip, icon='ARROW_LEFTRIGHT', icon_only=True)
+
+        layout.separator()
+
         layout.prop(self, 'follow_face')
 
-        for m in context.edit_object.modifiers:
-            if m.type == 'MIRROR':
-                layout.prop(self, 'mirror_modifier')
-                break
+        row = layout.row()
+        row.prop(self, 'edge_rail')
+        if self.edge_rail:
+            row.prop(self, 'edge_rail_only_end', text="OnlyEnd", toggle=True)
 
-    def create_edgeloops(self, bm, mirror_planes):
-        selected_edges = []
-        self.mirror_v_p_pairs = mirror_v_p_pairs = dict()
-        # key is vert, value is the mirror plane to which the vert belongs.
-        for e in bm.edges:
-            if e.select:
-                co_faces_selected = 0
-                for f in e.link_faces:
-                    if f.select:
-                        co_faces_selected += 1
-                else:
-                    if co_faces_selected <= 1:
-                        selected_edges.append(e)
-                        if mirror_planes:
-                            v1, v2 = e.verts
-                            v1_4d = v1.co.to_4d()
-                            v2_4d = v2.co.to_4d()
-                            for plane, threshold in mirror_planes:
-                                if (abs(v1_4d.dot(plane)) < threshold
-                                   and abs(v2_4d.dot(plane)) < threshold):
-                                    # This edge is on the mirror plane
-                                    selected_edges.pop()
-                                    mirror_v_p_pairs[v1] = \
-                                        mirror_v_p_pairs[v2] = plane
-                                    break
+        layout.prop(self, 'mirror_modifier')
 
-        if not selected_edges:
-            self.report({'WARNING'},
-                        "No edges selected.")
-            return None
-
-        v_es_pairs = dict()
-        self.selected_verts = selected_verts = \
-            set(v for e in selected_edges for v in e.verts)
-        self.end_verts = end_verts = selected_verts.copy()
-        for e in selected_edges:
-            for v in e.verts:
-                edges = v_es_pairs.get(v)
-                if edges is None:
-                    v_es_pairs[v] = e
-                elif isinstance(edges, BMEdge):
-                    v_es_pairs[v] = (edges, e)
-                    end_verts.remove(v)
-                else:
-                    self.report({'WARNING'},
-                                "Edge polls detected. Select non-branching edge loops")
-                    return None
-
-        if self.follow_face:
-            self.e_lp_pairs = e_lp_pairs = dict()
-            for e in selected_edges:
-                loops = []
-                for lp in e.link_loops:
-                    f = lp.face
-                    if not f.hide and f.normal != ZERO_VEC:
-                        if f.select:
-                            e_lp_pairs[e] = (lp,)
-                            break
-                        else:
-                            loops.append(lp)
-                else:
-                    e_lp_pairs[e] = loops
-
-        if mirror_planes:
-            for v in end_verts:
-                if v not in mirror_v_p_pairs:
-                    for plane, threshold in mirror_planes:
-                        if abs(v.co.to_4d().dot(plane)) < threshold:
-                            # This vert is on the mirror plane
-                            mirror_v_p_pairs[v] = plane
-                            break
-
-        edge_loops = selected_edges
-
-        self.extended_verts = extended_verts = set()
-        end_verts = end_verts.copy()
-        while end_verts:
-            v_start = end_verts.pop()
-            e_start = v_es_pairs[v_start]
-            edge_chain = [(v_start, e_start)]
-            v_current = e_start.other_vert(v_start)
-            e_prev = e_start
-            while v_current not in end_verts:
-                e1, e2 = v_es_pairs[v_current]
-                e = e1 if e1 != e_prev else e2
-                edge_chain.append((v_current, e))
-                v_current = e.other_vert(v_current)
-                e_prev = e
-            end_verts.remove(v_current)
-
-            geom = bmesh.ops.extrude_vert_indiv(bm, verts=[v_start, v_current])
-            ex_verts = geom['verts']
-            selected_verts.update(ex_verts)
-            extended_verts.update(ex_verts)
-            edge_loops += geom['edges']
-            for ex_v in ex_verts:
-                ex_edge = ex_v.link_edges[0]
-                delta = .0
-                if ex_edge.other_vert(ex_v) is v_start:
-                    v_orig = v_start
-                    for v, e in edge_chain:
-                        if e.calc_length() != 0.0:
-                            delta = v.co - e.other_vert(v).co
-                            break
-                else:
-                    v_orig = v_current
-                    for v, e in reversed(edge_chain):
-                        if e.calc_length() != 0.0:
-                            delta = e.other_vert(v).co - v.co
-                            break
-
-                ex_v.co += delta
-            edge_loops.append(bm.edges.new(geom['verts']))
-
-        self.edge_loops_set = set(edge_loops)
-
-        return edge_loops
-
-    def create_geometry(self, bm, e_loops):
-        geom_extruded = bmesh.ops.extrude_edge_only(bm, edges=e_loops)['geom']
-
-        self.offset_verts = offset_verts = \
-            [e for e in geom_extruded if isinstance(e, BMVert)]
-        self.offset_edges = offset_edges = \
-            [e for e in geom_extruded if isinstance(e, BMEdge)]
-        self.side_faces = side_faces = \
-            [f for f in geom_extruded if isinstance(f, BMFace)]
-        bmesh.ops.recalc_face_normals(bm, faces=side_faces)
-        self.side_edges = side_edges = \
-            [e.link_loops[0].link_loop_next.edge for e in offset_edges]
-
-        # Used in get_inner_vec() and apply_mirror()
-        self.side_edges_set = set(side_edges)
-
-        extended_verts, end_verts = self.extended_verts, self.end_verts
-        mirror_v_p_pairs = self.mirror_v_p_pairs
-        mirror_v_p_pairs_new = dict()
-
-        # keys is offset vert, values is original vert.
-        self.v_v_pairs = v_v_pairs = dict()
-
-        orig_verts = self.selected_verts
-        for e in side_edges:
-            v1, v2 = e.verts
-            if v1 in orig_verts:
-                v_offset, v_orig = v2, v1
-            else:
-                v_offset, v_orig = v1, v2
-            v_v_pairs[v_offset] = v_orig
-
-            if v_orig in extended_verts:
-                extended_verts.add(v_offset)
-            if v_orig in end_verts:
-                end_verts.add(v_offset)
-                end_verts.remove(v_orig)
-            plane = mirror_v_p_pairs.get(v_orig)
-            if plane:
-                # Offsetted vert should be on the mirror plane.
-                mirror_v_p_pairs_new[v_offset] = plane
-        self.mirror_v_p_pairs = mirror_v_p_pairs_new
-
-        self.img_faces = img_faces = bmesh.ops.edgeloop_fill(
-            bm, edges=offset_edges, mat_nr=0, use_smooth=False)['faces']
-
-        self.e_e_pairs = e_e_pairs = {
-            fl.edge: fl.link_loop_radial_next.link_loop_next.link_loop_next.edge
-            for face in img_faces for fl in face.loops}
-
-        if self.follow_face:
-            e_lp_pairs = self.e_lp_pairs
-            self.e_lp_pairs = {
-                e_offset: e_lp_pairs.get(e_orig, tuple())
-                for e_offset, e_orig in e_e_pairs.items()}
-            # Calculate normals
-            self.calc_average_fnorm()
-            e_fn_pairs = self.e_fn_pairs
-            for face in img_faces:
-                for fl in face.loops:
-                    fn = e_fn_pairs[fl.edge]
-                    if fn:
-                        if face.normal.dot(fn) < .0:
-                            face.normal_flip()
-                        break
-        else:
-            for face in img_faces:
-                if face.normal[2] < .0:
-                    face.normal_flip()
-
-        return img_faces
-
-    def calc_average_fnorm(self):
-        self.e_fn_pairs = e_fn_pairs = dict()
-        # edge:average_face_normal pairs.
-        e_lp_pairs = self.e_lp_pairs
-
-        for e in self.offset_edges:
-            loops = e_lp_pairs[e]
-            if loops:
-                normal = Vector()
-                for lp in loops:
-                    normal += lp.face.normal
-                normal.normalize()
-                e_fn_pairs[e] = normal
-            else:
-                e_fn_pairs[e] = None
-
-    def get_inner_vec(self, floop, threshold=1.0e-3):
-        """Get inner edge vector connecting to floop.vert"""
-        vert = self.v_v_pairs[floop.vert]
-        vec_edge = floop.edge.verts[0].co - floop.edge.verts[1].co
-        vec_edge.normalize()
-        side_edges, edge_loops = self.side_edges_set, self.edge_loops_set
-        co = 0
-        for e in vert.link_edges:
-            if (e in side_edges or e in edge_loops or e.hide
-               or e.calc_length() == .0):
-                continue
-            inner = e
-            co += 1
-            if e.select:
-                break
-        else:
-            if co != 1:
-                return None
-        vec_inner = (inner.other_vert(vert).co - vert.co).normalized()
-        if abs(vec_inner.dot(vec_edge)) > 1. - threshold:
-            return None
-        else:
-            return vec_inner
-
-    def is_hole(self, floop, tangent):
-        edge = self.e_e_pairs[floop.edge]
-        adj_loop = self.e_lp_pairs[floop.edge]
-        if len(adj_loop) != 1:
-            return None
-        adj_loop = adj_loop[0]
-
-        vec_edge = edge.verts[0].co - edge.verts[1].co
-        vec_adj = adj_loop.calc_tangent()
-        vec_adj -= vec_adj.project(vec_edge)
-        dot = vec_adj.dot(tangent)
-        if dot == .0:
-            return None
-        elif dot > .0:
-            # Hole
-            return True
-        else:
-            return False
-
-    def clean_geometry(self, bm):
-        bm.normal_update()
-
-        img_faces = self.img_faces
-        offset_verts = self.offset_verts
-        offset_edges = self.offset_edges
-        side_edges = self.side_edges
-        side_faces = self.side_faces
-        extended_verts = self.extended_verts
-        v_v_pairs = self.v_v_pairs
-
-        for e in self.offset_edges:
-            e.select = True
-
-        if self.geometry_mode == 'extrude':
-            for face in img_faces:
-                flip = True if self.flip else False
-
-                lp = face.loops[0]
-                side_lp = lp.link_loop_radial_next
-                if lp.vert is not side_lp.vert:
-                    # imaginary face normal and side faces normal
-                    # should be inconsistent.
-                    flip = not flip
-
-                if face in self.should_flip:
-                    flip = not flip
-
-                if flip:
-                    sides = (
-                        lp.link_loop_radial_next.face for lp in face.loops)
-                    for sf in sides:
-                        sf.normal_flip()
-
-        bmesh.ops.delete(bm, geom=img_faces, context=3)
-
-        if self.geometry_mode != 'extrude':
-            if self.geometry_mode == 'offset':
-                bmesh.ops.delete(bm, geom=side_edges+side_faces, context=2)
-            elif self.geometry_mode == 'move':
-                for v_target, v_orig in v_v_pairs.items():
-                    v_orig.co = v_target.co
-                bmesh.ops.delete(
-                    bm, geom=side_edges+side_faces+offset_edges+offset_verts,
-                    context=2)
-                extended_verts -= set(offset_verts)
-
-        extended = extended_verts.copy()
-        for v in extended_verts:
-            extended.update(v.link_edges)
-            extended.update(v.link_faces)
-        bmesh.ops.delete(bm, geom=list(extended), context=2)
-
-    @staticmethod
-    def skip_zero_length_edges(floop, normal=None, reverse=False):
-        floop_orig = floop
-        if normal:
-            normal = normal.normalized()
-        skip_co = 0
-        length = floop.edge.calc_length()
-        if length and normal:
-            # length which is perpendicular to normal
-            edge = floop.vert.co - floop.link_loop_next.vert.co
-            edge -= edge.project(normal)
-            length = edge.length
-
-        while length == 0:
-            floop = (floop.link_loop_next if not reverse
-                     else floop.link_loop_prev)
-            if floop is floop_orig:
-                # length of all edges are zero.
-                return None, None
-            skip_co += 1
-            length = floop.edge.calc_length()
-            if length and normal:
-                edge = floop.vert.co - floop.link_loop_next.vert.co
-                edge -= edge.project(normal)
-                length = edge.length
-
-        return floop, skip_co
-
-    @staticmethod
-    def get_mirror_planes(edit_object):
-        mirror_planes = []
-        e_mat_inv = edit_object.matrix_world.inverted()
-        for m in edit_object.modifiers:
-            if (m.type == 'MIRROR' and m.use_mirror_merge
-               and m.show_viewport and m.show_in_editmode):
-                mthreshold = m.merge_threshold
-                if m.mirror_object:
-                    xyz_mat = e_mat_inv * m.mirror_object.matrix_world
-                    x, y, z, w = xyz_mat.adjugated()
-                    loc = xyz_mat.to_translation()
-                    for axis in (x, y, z):
-                        axis[0:3] = axis.to_3d().normalized()
-                        dist = -axis.to_3d().dot(loc)
-                        axis[3] = dist
-                else:
-                    x, y, z = X_UP.to_4d(), Y_UP.to_4d(), Z_UP.to_4d()
-                    x[3] = y[3] = z[3] = .0
-                if m.use_x:
-                    mirror_planes.append((x, mthreshold))
-                if m.use_y:
-                    mirror_planes.append((y, mthreshold))
-                if m.use_z:
-                    mirror_planes.append((z, mthreshold))
-        return mirror_planes
-
-    def apply_mirror(self):
-        # Crip or extend edges to the mirror planes
-        side_edges, extended_verts = self.side_edges_set, self.extended_verts
-        for v, plane in self.mirror_v_p_pairs.items():
-            for e in v.link_edges:
-                if e in side_edges or e.other_vert(v) in extended_verts:
-                    continue
-                point = v.co.to_4d()
-                direction = e.verts[0].co - e.verts[1].co
-                direction = direction.to_4d()
-                direction[3] = .0
-                t = -plane.dot(point) / plane.dot(direction)
-                v.co = (point + t * direction)[:3]
-                break
-
-    def get_tangent(self, loop_act, loop_prev,
-                    f_normal_act=None, f_normal_prev=None,
-                    threshold=1.0e-4, align_end=False, end_verts=None):
-        def decompose_vector(vec, vec_s, vec_t):
-            det_xy = vec_s.x * vec_t.y - vec_s.y * vec_t.x
-            if det_xy:
-                s = (vec.x * vec_t.y - vec.y * vec_t.x) / det_xy
-                t = (-vec.x * vec_s.y + vec.y * vec_s.x) / det_xy
-            else:
-                det_yz = vec_s.y * vec_t.z - vec_s.z * vec_t.y
-                if det_yz:
-                    s = (vec.x * vec_t.z - vec.y * vec_t.y) / det_yz
-                    t = (-vec.x * vec_s.z + vec.y * vec_s.y) / det_yz
-                else:
-                    det_zx = vec_s.z * vec_t.x - vec_s.x * vec_t.z
-                    s = (vec.x * vec_t.x - vec.y * vec_t.z) / det_zx
-                    t = (-vec.x * vec_s.x + vec.y * vec_s.z) / det_zx
-            return s, t
-
-        vec_edge_act = loop_act.link_loop_next.vert.co - loop_act.vert.co
-        vec_edge_act.normalize()
-
-        vec_edge_prev = loop_prev.vert.co - loop_prev.link_loop_next.vert.co
-        vec_edge_prev.normalize()
-
-        if f_normal_act:
-            if f_normal_act != ZERO_VEC:
-                f_normal_act = f_normal_act.normalized()
-            else:
-                f_normal_act = None
-        if f_normal_prev:
-            if f_normal_prev != ZERO_VEC:
-                f_normal_prev = f_normal_prev.normalized()
-            else:
-                f_normal_prev = None
-
-        f_cross = None
-        vec_tangent = None
-        if f_normal_act and f_normal_prev:
-            f_angle = f_normal_act.angle(f_normal_prev)
-            if threshold < f_angle < ANGLE_180 - threshold:
-                vec_normal = f_normal_act + f_normal_prev
-                vec_normal.normalize()
-                f_cross = f_normal_act.cross(f_normal_prev)
-                f_cross.normalize()
-            elif f_angle > ANGLE_90:
-                inner = self.get_inner_vec(loop_act)
-                if inner:
-                    vec_tangent = -inner
-                else:
-                    vec_tangent = vec_edge_act.cross(f_normal_act)
-                    vec_tangent.normalize()
-                corner_type = 'FACE_FOLD'
-            else:
-                vec_normal = f_normal_act
-        elif f_normal_act or f_normal_prev:
-            vec_normal = f_normal_act or f_normal_prev
-        else:
-            vec_normal = loop_act.face.normal.copy()
-            if vec_normal == ZERO_VEC:
-                if threshold < vec_edge_act.angle(Z_UP) < ANGLE_180 - threshold:
-                    vec_normal = Z_UP - Z_UP.project(vec_edge_act)
-                    vec_normal.normalize()
-                else:
-                    # vec_edge is parallel to Z_UP
-                    vec_normal = Y_UP.copy()
-
-        if vec_tangent is None:
-            # 2d edge vectors are perpendicular to vec_normal
-            vec_edge_act2d = vec_edge_act - vec_edge_act.project(vec_normal)
-            vec_edge_act2d.normalize()
-
-            vec_edge_prev2d = vec_edge_prev - vec_edge_prev.project(vec_normal)
-            vec_edge_prev2d.normalize()
-
-            angle2d = vec_edge_act2d.angle(vec_edge_prev2d)
-            if angle2d < threshold:
-                # folding corner
-                corner_type = 'FOLD'
-                vec_tangent = vec_edge_act2d
-                vec_angle2d = ANGLE_360
-            elif angle2d > ANGLE_180 - threshold:
-                # straight corner
-                corner_type = 'STRAIGHT'
-                vec_tangent = vec_edge_act2d.cross(vec_normal)
-                vec_angle2d = ANGLE_180
-            else:
-                direction = vec_edge_act2d.cross(vec_edge_prev2d).dot(vec_normal)
-                if direction > .0:
-                    # convex corner
-                    corner_type = 'CONVEX'
-                    vec_tangent = -(vec_edge_act2d + vec_edge_prev2d)
-                    vec_angle2d = angle2d
-                else:
-                    # concave corner
-                    corner_type = 'CONCAVE'
-                    vec_tangent = vec_edge_act2d + vec_edge_prev2d
-                    vec_angle2d = ANGLE_360 - angle2d
-
-            if vec_tangent.dot(vec_normal):
-                # Make vec_tangent perpendicular to vec_normal
-                vec_tangent -= vec_tangent.project(vec_normal)
-
-            vec_tangent.normalize()
-
-        if f_cross:
-            if vec_tangent.dot(f_cross) < .0:
-                f_cross *= -1
-
-            if corner_type == 'FOLD' or corner_type == 'STRAIGHT':
-                vec_tangent = f_cross
-            else:
-                f_cross2d = f_cross - f_cross.project(vec_normal)
-                s, t = decompose_vector(
-                    f_cross2d, vec_edge_act2d, vec_edge_prev2d)
-                if s * t < threshold:
-                    # For the case in which vec_tangent is not
-                    # between vec_edge_act2d and vec_edge_prev2d.
-                    # Probably using 3d edge vectors is
-                    # more intuitive than 2d edge vectors.
-                    if corner_type == 'CONVEX':
-                        vec_tangent = -(vec_edge_act + vec_edge_prev)
-                    else:
-                        # CONCAVE
-                        vec_tangent = vec_edge_act + vec_edge_prev
-                    vec_tangent.normalize()
-                else:
-                    vec_tangent = f_cross
-        elif align_end and loop_act.vert in end_verts:
-            inner = self.get_inner_vec(loop_act)
-            if inner:
-                vec_tangent = \
-                    inner if inner.dot(vec_tangent) > .0 else -inner
-
-        if corner_type == 'FOLD':
-            factor_act = factor_prev = 0
-        else:
-            factor_act = 1. / sin(vec_tangent.angle(vec_edge_act))
-            factor_prev = 1. / sin(vec_tangent.angle(vec_edge_prev))
-
-        return vec_tangent, factor_act, factor_prev
 
     def execute(self, context):
+        #time_start = perf_counter()
+
         edit_object = context.edit_object
         me = edit_object.data
 
@@ -623,95 +581,71 @@ class OffsetEdges(bpy.types.Operator):
         bm = bmesh.new()
         bm.from_mesh(me)
 
-        mirror_planes = None
-        if self.mirror_modifier:
-            mirror_planes = self.get_mirror_planes(edit_object)
-
-        e_loops = self.create_edgeloops(bm, mirror_planes)
-        if e_loops is None:
+        set_offset_edges = collect_offset_edges(bm)
+        if set_offset_edges is None:
             bm.free()
             bpy.ops.object.editmode_toggle()
             return {'CANCELLED'}
 
-        fs = self.create_geometry(bm, e_loops)
-        self.should_flip = should_flip = set()
-        # includes faces, side faces around which should flip its normal
-        # later in clean_geometry()
-
-        # using self is slow, so take off self
-        follow_face = self.follow_face
-        if follow_face:
-            e_fn_pairs = self.e_fn_pairs
-        threshold = self.threshold
-        skip_zero_length_edges = self.skip_zero_length_edges
-        get_tangent = self.get_tangent
-        align_end, end_verts = self.align_end, self.end_verts
-        is_hole = self.is_hole
-
-        for f in fs:
-            width = self.width if not self.flip else -self.width
-            normal = f.normal if not follow_face else None
-            move_vectors = []
-            co_hole_check = self.limit_hole_check
-            loop_act = loop_prev = None
-            for floop in f.loops:
-                if loop_act:
-                    move_vectors.append(move_vectors[-1])
-                    if floop is loop_act:
-                        loop_prev = loop_act
-                        loop_act = None
-                    continue
-
-                loop_act, skip_next_co = \
-                    skip_zero_length_edges(floop, normal, reverse=False)
-                if loop_act is None:
-                    # All edges is zero length
-                    break
-
-                if loop_prev is None:
-                    loop_prev = floop.link_loop_prev
-                    loop_prev, skip_prev_co = \
-                        skip_zero_length_edges(loop_prev, normal, reverse=True)
-
-                if not follow_face:
-                    n1, n2 = None, None
-                else:
-                    n1 = e_fn_pairs[loop_act.edge]
-                    n2 = e_fn_pairs[loop_prev.edge]
-
-                tangent = get_tangent(
-                    loop_act, loop_prev, n1, n2, threshold,
-                    align_end, end_verts)
-
-                if follow_face and co_hole_check:
-                    co_hole_check -= 1
-                    hole = is_hole(loop_act, tangent[0])
-                    if hole is not None:
-                        co_hole_check = 0
-                        if hole:
-                            width *= -1
-                            # side face normals should be flipped
-                            should_flip.add(f)
-
-                move_vectors.append(tangent)
-
-                if floop is loop_act:
-                    loop_prev = loop_act
-                    loop_act = None
-
-            for floop, vecs in zip(f.loops, move_vectors):
-                vec_tan, factor_act, factor_prev = vecs
-                floop.vert.co += \
-                    width * min(factor_act, factor_prev) * vec_tan
-
         if self.mirror_modifier:
-            self.apply_mirror()
+            mirror_planes = collect_mirror_planes(edit_object)
+            vert_mirror_pairs, set_offset_edges = \
+                get_vert_mirror_pairs(set_offset_edges, mirror_planes)
 
-        self.clean_geometry(bm)
+            if not set_offset_edges:
+                self.report({'WARNING'},
+                            "All selected edges are on mirror planes.")
+        else:
+            vert_mirror_pairs = None
+
+        loops = collect_loops(set_offset_edges)
+        if loops is None:
+            self.report({'WARNING'},
+                        "Overlap detected. Select non-overlap edge loops")
+            bm.free()
+            bpy.ops.object.editmode_toggle()
+            return {'CANCELLED'}
+
+
+        if self.depth_mode == 'angle':
+            w = self.width if not self.flip_width else -self.width
+            angle = self.angle if not self.flip_angle else -self.angle
+            width = w * cos(angle)
+            depth = w * sin(angle)
+        else:
+            width = self.width if not self.flip_width else -self.width
+            depth = self.depth if not self.flip_depth else -self.depth
+
+        vec_upward = (X_UP + Y_UP + Z_UP).normalized()
+        # vec_upward is used to unify loop normals when follow_face is off.
+        normal_fallback = Z_UP
+        #normal_fallback = Vector(context.region_data.view_matrix[2][:3])
+        # normal_fallback is used when loop normal cannot be calculated.
+
+        if self.geometry_mode == 'move':
+            geom_ex = None
+        else:
+            geom_ex = extrude_edges(bm, set_offset_edges)
+
+        follow_face = self.follow_face
+        edge_rail = self.edge_rail
+        er_only_end = self.edge_rail_only_end
+        threshold = self.threshold
+        for lp in loops:
+            verts, directions = get_verts_and_directions(
+                lp, vec_upward, normal_fallback, vert_mirror_pairs,
+                follow_face=follow_face, edge_rail=edge_rail,
+                edge_rail_only_end=er_only_end, threshold=threshold)
+            if verts:
+                do_offset(width, depth, verts, directions, geom_ex)
+
+        clean(bm, self.geometry_mode, set_offset_edges, geom_ex)
 
         bm.to_mesh(me)
         bm.free()
         bpy.ops.object.editmode_toggle()
+
+        #print("Time of offset_edges: ", perf_counter() - time_start)
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -723,13 +657,6 @@ class OffsetEdges(bpy.types.Operator):
                 self.follow_face = True
                 break
         bpy.ops.object.editmode_toggle()
-
-        self.mirror_modifier = False
-        for m in edit_object.modifiers:
-            if (m.type == 'MIRROR' and m.use_mirror_merge
-               and m.show_viewport and m.show_in_editmode):
-                self.mirror_modifier = True
-                break
 
         return self.execute(context)
 
