@@ -272,8 +272,8 @@ def get_edge_rail(vert, set_offset_edges):
     vec_inner = None
     for e in vert.link_edges:
         if not e.hide and e not in set_offset_edges:
-            v1, v2 = e.verts
-            vec = v1.co - v2.co
+            v_other = e.other_vert(vert)
+            vec = v_other.co - vert.co
             if vec != ZERO_VEC:
                 co_edge += 1
                 vec_inner = vec
@@ -508,9 +508,10 @@ class OffsetEdges(bpy.types.Operator):
     flip_depth = bpy.props.BoolProperty(
         name="Flip Depth", default=False,
         description="Flip depth direction")
-    use_angle = bpy.props.BoolProperty(
-        name="Use Angle", default=True,
-        description="Offset based on angle")
+    depth_mode = bpy.props.EnumProperty(
+        items=[('angle', "Angle", "Angle"),
+               ('depth', "Depth", "Depth")],
+        name="Depth mode", default='angle')
     angle = bpy.props.FloatProperty(
         name="Angle", default=0, step=.1, min=-4*pi, max=4*pi,
         subtype='ANGLE', description="Angle")
@@ -541,24 +542,40 @@ class OffsetEdges(bpy.types.Operator):
     def draw(self, context):
         layout = self.layout
         layout.prop(self, 'geometry_mode', text="")
+        #layout.prop(self, 'geometry_mode', expand=True)
 
-        layout.prop(self, 'use_angle')
-        layout.prop(self, 'width')
-        layout.prop(self, 'flip_width')
-        if self.use_angle:
-            layout.prop(self, 'angle')
-            layout.prop(self, 'flip_angle')
+        row = layout.row()
+        col = row.column()
+        col.scale_x = 10
+        col.prop(self, 'width')
+        col = row.column()
+        col.scale_x = 1
+        col.prop(self, 'flip_width', text="Flip", toggle=True)
+
+        layout.prop(self, 'depth_mode', expand=True)
+        if self.depth_mode == 'angle':
+            prop1 = 'angle'
+            prop2 = 'flip_angle'
         else:
-            layout.prop(self, 'depth')
-            layout.prop(self, 'flip_depth')
+            prop1 = 'depth'
+            prop2 = 'flip_depth'
+        row = layout.row()
+        col = row.column()
+        col.scale_x = 10
+        col.prop(self, prop1)
+        col = row.column()
+        col.scale_x = 1
+        col.prop(self, prop2, text="Flip", toggle=True)
 
         layout.prop(self, 'follow_face')
 
+        row = layout.row()
+        row.prop(self, 'edge_rail')
+        if self.edge_rail:
+            row.prop(self, 'edge_rail_only_end', text="Only End", toggle=True)
+
         layout.prop(self, 'mirror_modifier')
 
-        layout.prop(self, 'edge_rail')
-        if self.edge_rail:
-            layout.prop(self, 'edge_rail_only_end')
 
     def execute(self, context):
         #time_start = perf_counter()
@@ -596,7 +613,7 @@ class OffsetEdges(bpy.types.Operator):
             return {'CANCELLED'}
 
 
-        if self.use_angle:
+        if self.depth_mode == 'angle':
             w = self.width if not self.flip_width else -self.width
             angle = self.angle if not self.flip_angle else -self.angle
             width = w * cos(angle)
