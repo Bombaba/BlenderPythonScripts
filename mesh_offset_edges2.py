@@ -544,35 +544,29 @@ class OffsetEdges(bpy.types.Operator):
         layout.prop(self, 'geometry_mode', text="")
         #layout.prop(self, 'geometry_mode', expand=True)
 
-        row = layout.row()
-        col = row.column()
-        col.scale_x = 10
-        col.prop(self, 'width')
-        col = row.column()
-        col.scale_x = 1
-        col.prop(self, 'flip_width', text="Flip", toggle=True)
+        row = layout.row(align=True)
+        row.prop(self, 'width')
+        row.prop(self, 'flip_width', icon='ARROW_LEFTRIGHT', icon_only=True)
 
         layout.prop(self, 'depth_mode', expand=True)
         if self.depth_mode == 'angle':
-            prop1 = 'angle'
-            prop2 = 'flip_angle'
+            d_mode = 'angle'
+            flip = 'flip_angle'
         else:
-            prop1 = 'depth'
-            prop2 = 'flip_depth'
-        row = layout.row()
-        col = row.column()
-        col.scale_x = 10
-        col.prop(self, prop1)
-        col = row.column()
-        col.scale_x = 1
-        col.prop(self, prop2, text="Flip", toggle=True)
+            d_mode = 'depth'
+            flip = 'flip_depth'
+        row = layout.row(align=True)
+        row.prop(self, d_mode)
+        row.prop(self, flip, icon='ARROW_LEFTRIGHT', icon_only=True)
+
+        layout.separator()
 
         layout.prop(self, 'follow_face')
 
         row = layout.row()
         row.prop(self, 'edge_rail')
         if self.edge_rail:
-            row.prop(self, 'edge_rail_only_end', text="Only End", toggle=True)
+            row.prop(self, 'edge_rail_only_end', text="OnlyEnd", toggle=True)
 
         layout.prop(self, 'mirror_modifier')
 
