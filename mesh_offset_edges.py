@@ -134,8 +134,6 @@ def collect_offset_edges(bm):
                 set_offset_edges.add(e)
 
     if not set_offset_edges:
-        self.report({'WARNING'},
-                    "No edges selected.")
         return None
 
     return set_offset_edges
@@ -570,7 +568,6 @@ class OffsetEdges(bpy.types.Operator):
 
         layout.prop(self, 'mirror_modifier')
 
-
     def execute(self, context):
         #time_start = perf_counter()
 
@@ -583,6 +580,8 @@ class OffsetEdges(bpy.types.Operator):
 
         set_offset_edges = collect_offset_edges(bm)
         if set_offset_edges is None:
+            self.report({'WARNING'},
+                        "No edges selected.")
             bm.free()
             bpy.ops.object.editmode_toggle()
             return {'CANCELLED'}
