@@ -839,7 +839,7 @@ class OffsetEdgesMenu(bpy.types.Menu):
         #off.interactive = ext.interactive = mov.interactive = True
 
 def draw_item(self, context):
-    self.layout.menu("VIEW3D_MT_edit_mesh_edges_offset")
+    self.layout.menu("VIEW3D_MT_edit_mesh_offset_edges")
 
 
 def register():
