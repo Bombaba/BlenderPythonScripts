@@ -820,7 +820,7 @@ class OffsetEdges(bpy.types.Operator):
             return self.execute(context)
 
 class OffsetEdgesMenu(bpy.types.Menu):
-    bl_idname = "VIEW3D_MT_edit_mesh_edges_offset"
+    bl_idname = "VIEW3D_MT_edit_mesh_offset_edges"
     bl_label = "Offset Edges"
 
     def draw(self, context):
