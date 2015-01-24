@@ -67,7 +67,7 @@ def calc_normal_from_verts(verts, fallback=Z_UP):
 
     return normal
 
-def get_corner_type(vec_up, vec_right2d, vec_left2d, threshold=1.0e-4):
+def get_corner_type(vec_up, vec_right2d, vec_left2d, threshold):
     # vec_right2d and vec_left2d should be perpendicular to vec_up.
     # All vectors in parameters should have been normalized.
     if vec_right2d == vec_left2d == ZERO_VEC:
@@ -85,7 +85,7 @@ def get_corner_type(vec_up, vec_right2d, vec_left2d, threshold=1.0e-4):
     else:
         return 'CONCAVE'
 
-def calc_tangent(vec_up, vec_right, vec_left, threshold=1.0e-4):
+def calc_tangent(vec_up, vec_right, vec_left, threshold):
     vec_right2d = vec_right- vec_right.project(vec_up)
     vec_right2d.normalize()
     vec_left2d = vec_left- vec_left.project(vec_up)
@@ -288,25 +288,34 @@ def get_adj_faces(edges):
         return None
 
 def get_edge_rail(vert, set_edges_orig):
-    co_edge =  0
+    co_edges = co_edges_selected = 0
     vec_inner = None
     for e in vert.link_edges:
-        if not e.hide and e not in set_edges_orig:
+        if (e not in set_edges_orig and
+           (e.select or (co_edges_selected == 0 and not e.hide))):
             v_other = e.other_vert(vert)
             vec = v_other.co - vert.co
             if vec != ZERO_VEC:
-                co_edge += 1
                 vec_inner = vec
-                if co_edge == 2:
-                    return None
-    else:
+                if e.select:
+                    co_edges_selected += 1
+                    if co_edges_selected == 2:
+                        return None
+                else:
+                    co_edges += 1
+    if co_edges_selected == 1:
         return vec_inner
+    elif co_edges == 1:
+        # No selected edges, one unselected edge.
+        return vec_inner
+    else:
+        return None
 
-def get_cross_rail(vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l, threshold=1.0e-4):
+def get_cross_rail(vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l, threshold):
     # Cross rail is a cross vector between normal_r and normal_l.
     angle = normal_r.angle(normal_l)
     if angle < threshold:
-        # normal_r and normal_l are almost same, no cross vector.
+        # normal_r and normal_l are almost same
         return None
 
     vec_cross = normal_r.cross(normal_l)
@@ -475,21 +484,20 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
         vec_tan = calc_tangent(vec_up, vec_edge_r, vec_edge_l, opt_threshold)
 
         if vec_tan != ZERO_VEC:
-            # Project vec_tan to one of rail vector.
             rail = None
             if vert_mirror_pairs and VERT_END:
                 if v in vert_mirror_pairs:
                     rail, vec_up = get_mirror_rail(vert_mirror_pairs[v], vec_up)
             if opt_edge_rail:
                 # Get edge rail.
-                # edge rail is a vector of inner edge.
+                # edge rail is a vector of an inner edge.
                 if (not opt_er_only_end) or VERT_END:
                     rail = get_edge_rail(v, set_edges)
             if (not rail) and normal_r and normal_l:
                 # Get cross rail.
                 # Cross rail is a cross vector between normal_r and normal_l.
-                rail = get_cross_rail(vec_tan, vec_edge_r, vec_edge_l,
-                                      normal_r, normal_l, opt_threshold)
+                rail = get_cross_rail(
+                    vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l, opt_threshold)
             if rail:
                 vec_tan = vec_tan.project(rail)
                 vec_tan.normalize()
@@ -606,7 +614,7 @@ class OffsetEdges(bpy.types.Operator):
             # Return None, indicating to use cache.
             return None, None
 
-        #time = perf_counter()
+        time = perf_counter()
 
         set_edges_orig = collect_edges(bm)
         if set_edges_orig is None:
@@ -661,7 +669,7 @@ class OffsetEdges(bpy.types.Operator):
             _cache_offset_infos.append((v_ixs, directions))
         self._cache_edges_orig_ixs = tuple(e.index for e in set_edges_orig)
 
-        #print("OffsetEdges prepare: ", perf_counter() - time)
+        print("OffsetEdges prepare: ", perf_counter() - time)
 
         return offset_infos, set_edges_orig
 
