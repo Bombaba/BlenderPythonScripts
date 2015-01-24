@@ -193,6 +193,16 @@ def reorder_loop(verts, edges, normal, adj_faces):
         if normal.dot(adj_f.normal) < .0:
             normal *= -1
         break
+    else:
+        # All elements in adj_faces are None
+        for v in verts:
+            if v.normal != ZERO_VEC:
+                if normal.dot(v.normal) < .0:
+                    verts.reverse()
+                    edges.reverse()
+                    normal *= -1
+                break
+
     return verts, edges, normal, adj_faces
 
 def get_adj_ix(ix_start, vec_edges, half_loop):
@@ -227,7 +237,7 @@ def get_adj_ix(ix_start, vec_edges, half_loop):
 
     return ix_right, ix_left
 
-def get_normals(lp_normal, ix_r, ix_l, adj_faces):
+def get_normals(lp_normal, adj_faces, ix_r, ix_l, vert):
     normal_r = normal_l = None
     if adj_faces:
         f_r, f_l = adj_faces[ix_r], adj_faces[ix_l]
@@ -235,6 +245,10 @@ def get_normals(lp_normal, ix_r, ix_l, adj_faces):
             normal_r = f_r.normal
         if f_l:
             normal_l = f_l.normal
+        if f_r is None and f_l is None:
+            # Use vert normal
+            if vert.normal != ZERO_VEC:
+                normal_r = vert.normal
 
     if normal_r and normal_l:
         vec_up = (normal_r + normal_l).normalized()
@@ -252,14 +266,22 @@ def get_adj_faces(edges):
     adj_exist = False
     for e in edges:
         face = None
+        co_adj = 0
         for f in e.link_faces:
             # Search an adjacent face.
             # Selected face has precedance.
             if not f.hide and f.normal != ZERO_VEC:
-                face = f
                 adj_exist = True
-                if f.select: break
-        adj_faces.append(face)
+                face = f
+                co_adj += 1
+                if f.select:
+                    adj_faces.append(f)
+                    break
+        else:
+            if co_adj == 1:
+                adj_faces.append(face)
+            else:
+                adj_faces.append(None)
     if adj_exist:
         return adj_faces
     else:
@@ -449,7 +471,7 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
         vec_edge_r = vec_edges[ix_r]
         vec_edge_l = -vec_edges[ix_l]
 
-        vec_up, normal_r, normal_l = get_normals(lp_normal, ix_r, ix_l, adj_faces)
+        vec_up, normal_r, normal_l = get_normals(lp_normal, adj_faces, ix_r, ix_l, v)
         vec_tan = calc_tangent(vec_up, vec_edge_r, vec_edge_l, opt_threshold)
 
         if vec_tan != ZERO_VEC:
