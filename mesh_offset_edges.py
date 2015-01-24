@@ -80,7 +80,7 @@ def get_corner_type(vec_up, vec_right2d, vec_left2d, threshold=1.0e-4):
         return 'FOLDING'
     elif angle > ANGLE_180 - threshold:
         return 'STRAIGHT'
-    elif vec_right2d.cross(vec_left2d).dot(vec_up) > threshold:
+    elif vec_right2d.cross(vec_left2d).dot(vec_up) > .0:
         return 'CONVEX'
     else:
         return 'CONCAVE'
