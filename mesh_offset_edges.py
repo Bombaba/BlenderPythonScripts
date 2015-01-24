@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 2, 1),
+    "version": (0, 2, 2),
     "blender": (2, 70, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -32,7 +32,7 @@ bl_info = {
     "category": "Mesh"}
 
 import math
-from math import sin, cos, pi
+from math import sin, cos, pi, copysign
 import bpy
 import bmesh
 from mathutils import Vector
@@ -120,8 +120,8 @@ def get_factor(vec_direction, vec_right, vec_left, func=max):
     else:
         return .0
 
-def collect_offset_edges(bm):
-    set_offset_edges = set()
+def collect_edges(bm):
+    set_edges_orig = set()
     for e in bm.edges:
         if e.select:
             co_faces_selected = 0
@@ -131,15 +131,15 @@ def collect_offset_edges(bm):
                     if co_faces_selected == 2:
                         break
             else:
-                set_offset_edges.add(e)
+                set_edges_orig.add(e)
 
-    if not set_offset_edges:
+    if not set_edges_orig:
         return None
 
-    return set_offset_edges
+    return set_edges_orig
 
-def collect_loops(set_offset_edges):
-    set_edges_copy = set_offset_edges.copy()
+def collect_loops(set_edges_orig):
+    set_edges_copy = set_edges_orig.copy()
 
     loops = []  # [v, e, v, e, ... , e, v]
     while set_edges_copy:
@@ -265,11 +265,11 @@ def get_adj_faces(edges):
     else:
         return None
 
-def get_edge_rail(vert, set_offset_edges):
+def get_edge_rail(vert, set_edges_orig):
     co_edge =  0
     vec_inner = None
     for e in vert.link_edges:
-        if not e.hide and e not in set_offset_edges:
+        if not e.hide and e not in set_edges_orig:
             v_other = e.other_vert(vert)
             vec = v_other.co - vert.co
             if vec != ZERO_VEC:
@@ -288,7 +288,6 @@ def get_cross_rail(vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l, threshol
         return None
 
     vec_cross = normal_r.cross(normal_l)
-    vec_cross.normalize()
     if vec_cross.dot(vec_tan) < .0:
         vec_cross *= -1
     cos_min = min(vec_tan.dot(vec_edge_r), vec_tan.dot(vec_edge_l))
@@ -298,7 +297,7 @@ def get_cross_rail(vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l, threshol
     else:
         return None
 
-def do_offset(width, depth, verts, directions, geom_ex):
+def move_verts(width, depth, verts, directions, geom_ex):
     if geom_ex:
         geom_s = geom_ex['side']
         verts_ex = []
@@ -310,12 +309,12 @@ def do_offset(width, depth, verts, directions, geom_ex):
         #assert len(verts) == len(verts_ex)
         verts = verts_ex
 
-    for v, (t, u) in zip(verts, directions):
-        v.co += width * t + depth * u
+    for v, (vec_tan, vec_up) in zip(verts, directions):
+        v.co += width * vec_tan + depth * vec_up
 
-def extrude_edges(bm, set_offset_edges):
-    extruded = bmesh.ops.extrude_edge_only(bm, edges=list(set_offset_edges))['geom']
-    n_edges = n_faces = len(set_offset_edges)
+def extrude_edges(bm, edges_orig):
+    extruded = bmesh.ops.extrude_edge_only(bm, edges=edges_orig)['geom']
+    n_edges = n_faces = len(edges_orig)
     n_verts = len(extruded) - n_edges - n_faces
 
     geom = dict()
@@ -326,7 +325,7 @@ def extrude_edges(bm, set_offset_edges):
 
     return geom
 
-def clean(bm, mode, set_offset_edges, geom_ex=None):
+def clean(bm, mode, edges_orig, geom_ex=None):
     for f in bm.faces:
         f.select = False
     if geom_ex:
@@ -336,7 +335,7 @@ def clean(bm, mode, set_offset_edges, geom_ex=None):
             lis_geom = list(geom_ex['side']) + list(geom_ex['faces'])
             bmesh.ops.delete(bm, geom=lis_geom, context=2)
     else:
-        for e in set_offset_edges:
+        for e in edges_orig:
             e.select = True
 
 def collect_mirror_planes(edit_object):
@@ -363,11 +362,11 @@ def collect_mirror_planes(edit_object):
                 mirror_planes.append((loc, norm_z, merge_limit))
     return mirror_planes
 
-def get_vert_mirror_pairs(set_offset_edges, mirror_planes):
+def get_vert_mirror_pairs(set_edges_orig, mirror_planes):
     if mirror_planes:
-        set_edges_copy = set_offset_edges.copy()
+        set_edges_copy = set_edges_orig.copy()
         vert_mirror_pairs = dict()
-        for e in set_offset_edges:
+        for e in set_edges_orig:
             v1, v2 = e.verts
             for mp in mirror_planes:
                 p_co, p_norm, mlimit = mp
@@ -384,7 +383,7 @@ def get_vert_mirror_pairs(set_offset_edges, mirror_planes):
                     set_edges_copy.remove(e)
         return vert_mirror_pairs, set_edges_copy
     else:
-        return None, set_offset_edges
+        return None, set_edges_orig
 
 def get_mirror_rail(mirror_plane, vec_up):
     p_norm = mirror_plane[1]
@@ -397,7 +396,7 @@ def get_mirror_rail(mirror_plane, vec_up):
     else:
         return None, vec_up
 
-def get_verts_and_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options):
+def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options):
     # vec_front is used when loop normal couldn't calculated because the loop is straight.
     # vec_upward is used in order to unify all loop normals when follow_face is off.
     opt_follow_face = options['follow_face']
@@ -445,7 +444,8 @@ def get_verts_and_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs,
             VERT_END = False
         ix_r, ix_l = get_adj_ix(i, vec_edges, HALF_LOOP)
         if ix_r is None:
-            break
+            # Length of this loop is zero.
+            return [], []
         vec_edge_r = vec_edges[ix_r]
         vec_edge_l = -vec_edges[ix_l]
 
@@ -467,7 +467,7 @@ def get_verts_and_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs,
                 # Get cross rail.
                 # Cross rail is a cross vector between normal_r and normal_l.
                 rail = get_cross_rail(vec_tan, vec_edge_r, vec_edge_l,
-                                            normal_r, normal_l, opt_threshold)
+                                      normal_r, normal_l, opt_threshold)
             if rail:
                 vec_tan = vec_tan.project(rail)
                 vec_tan.normalize()
@@ -479,11 +479,10 @@ def get_verts_and_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs,
         vec_up *= get_factor(vec_up, vec_edge_r, vec_edge_l)
         directions.append((vec_tan, vec_up))
 
-    if directions:
-        return verts, directions
-    else:
-        return None, None
+    return verts, directions
 
+def use_cashes(self, context):
+    self.caches_valid = True
 
 class OffsetEdges(bpy.types.Operator):
     """Offset Edges."""
@@ -495,27 +494,28 @@ class OffsetEdges(bpy.types.Operator):
         items=[('offset', "Offset", "Offset edges"),
                ('extrude', "Extrude", "Extrude edges"),
                ('move', "Move", "Move selected edges")],
-        name="Geometory mode", default='offset')
+        name="Geometory mode", default='offset',
+        update=use_cashes)
     width = bpy.props.FloatProperty(
-        name="Width", default=.2, precision=4, step=1)
+        name="Width", default=.2, precision=4, step=1, update=use_cashes)
     flip_width = bpy.props.BoolProperty(
         name="Flip Width", default=False,
-        description="Flip width direction")
+        description="Flip width direction", update=use_cashes)
     depth = bpy.props.FloatProperty(
-        name="Depth", default=.0, precision=4, step=1)
+        name="Depth", default=.0, precision=4, step=1, update=use_cashes)
     flip_depth = bpy.props.BoolProperty(
         name="Flip Depth", default=False,
-        description="Flip depth direction")
+        description="Flip depth direction", update=use_cashes)
     depth_mode = bpy.props.EnumProperty(
         items=[('angle', "Angle", "Angle"),
                ('depth', "Depth", "Depth")],
-        name="Depth mode", default='angle')
+        name="Depth mode", default='angle', update=use_cashes)
     angle = bpy.props.FloatProperty(
         name="Angle", default=0, step=.1, min=-4*pi, max=4*pi,
-        subtype='ANGLE', description="Angle")
+        subtype='ANGLE', description="Angle", update=use_cashes)
     flip_angle = bpy.props.BoolProperty(
         name="Flip Angle", default=False,
-        description="Flip Angle")
+        description="Flip Angle", update=use_cashes)
     follow_face = bpy.props.BoolProperty(
         name="Follow Face", default=False,
         description="Offset along faces around")
@@ -529,9 +529,18 @@ class OffsetEdges(bpy.types.Operator):
         name="Edge Rail Only End", default=False,
         description="Apply edge rail to end verts only")
     threshold = bpy.props.FloatProperty(
-        name="Threshold", default=1.0e-4, step=.1, subtype='ANGLE',
+        name="Threshold", default=1.0e-5, step=.1, subtype='ANGLE',
         description="Angle threshold which determines straight or folding edges",
         options={'HIDDEN'})
+    interactive = bpy.props.BoolProperty(
+        name="Interactive", default=False,
+        options={'HIDDEN'})
+    caches_valid = bpy.props.BoolProperty(
+        name="Caches Valid", default=False,
+        options={'HIDDEN'})
+
+    _cache_offset_infos = None
+    _cache_edges_orig_ixs = None
 
     @classmethod
     def poll(self, context):
@@ -568,43 +577,91 @@ class OffsetEdges(bpy.types.Operator):
 
         layout.prop(self, 'mirror_modifier')
 
-    def execute(self, context):
-        #time_start = perf_counter()
+        #layout.operator('mesh.offset_edges', text='Repeat')
 
-        edit_object = context.edit_object
-        me = edit_object.data
+    def get_offset_infos(self, bm, edit_object):
+        if self.caches_valid and self._cache_offset_infos is not None:
+            # Return None, indicating to use cache.
+            return None, None
 
-        bpy.ops.object.editmode_toggle()
-        bm = bmesh.new()
-        bm.from_mesh(me)
+        #time = perf_counter()
 
-        set_offset_edges = collect_offset_edges(bm)
-        if set_offset_edges is None:
+        set_edges_orig = collect_edges(bm)
+        if set_edges_orig is None:
             self.report({'WARNING'},
                         "No edges selected.")
-            bm.free()
-            bpy.ops.object.editmode_toggle()
-            return {'CANCELLED'}
+            return False, False
 
         if self.mirror_modifier:
             mirror_planes = collect_mirror_planes(edit_object)
-            vert_mirror_pairs, set_offset_edges = \
-                get_vert_mirror_pairs(set_offset_edges, mirror_planes)
+            vert_mirror_pairs, set_edges = \
+                get_vert_mirror_pairs(set_edges_orig, mirror_planes)
 
-            if not set_offset_edges:
-                self.report({'WARNING'},
-                            "All selected edges are on mirror planes.")
+            if set_edges:
+                set_edges_orig = set_edges
+            else:
+                #self.report({'WARNING'},
+                #            "All selected edges are on mirror planes.")
+                vert_mirror_pairs = None
         else:
             vert_mirror_pairs = None
 
-        loops = collect_loops(set_offset_edges)
+        loops = collect_loops(set_edges_orig)
         if loops is None:
             self.report({'WARNING'},
                         "Overlap detected. Select non-overlap edge loops")
-            bm.free()
-            bpy.ops.object.editmode_toggle()
-            return {'CANCELLED'}
+            return False, False
 
+        vec_upward = (X_UP + Y_UP + Z_UP).normalized()
+        # vec_upward is used to unify loop normals when follow_face is off.
+        normal_fallback = Z_UP
+        #normal_fallback = Vector(context.region_data.view_matrix[2][:3])
+        # normal_fallback is used when loop normal cannot be calculated.
+
+        follow_face = self.follow_face
+        edge_rail = self.edge_rail
+        er_only_end = self.edge_rail_only_end
+        threshold = self.threshold
+
+        offset_infos = []
+        for lp in loops:
+            verts, directions = get_directions(
+                lp, vec_upward, normal_fallback, vert_mirror_pairs,
+                follow_face=follow_face, edge_rail=edge_rail,
+                edge_rail_only_end=er_only_end, threshold=threshold)
+            if verts:
+                offset_infos.append((verts, directions))
+
+        # Saving caches.
+        self._cache_offset_infos = _cache_offset_infos = []
+        for verts, directions in offset_infos:
+            v_ixs = tuple(v.index for v in verts)
+            _cache_offset_infos.append((v_ixs, directions))
+        self._cache_edges_orig_ixs = tuple(e.index for e in set_edges_orig)
+
+        #print("OffsetEdges prepare: ", perf_counter() - time)
+
+        return offset_infos, set_edges_orig
+
+    def do_offset_and_free(self, bm, me, offset_infos=None, set_edges_orig=None):
+        # This method should be called in object mode.
+        # If offset_infos is None, use caches.
+        # Makes caches invalid after offset.
+
+        #time = perf_counter()
+
+        if offset_infos is None:
+            # using cache
+            bmverts = tuple(bm.verts)
+            bmedges = tuple(bm.edges)
+            edges_orig = [bmedges[ix] for ix in self._cache_edges_orig_ixs]
+            verts_directions = []
+            for ix_vs, directions in self._cache_offset_infos:
+                verts = tuple(bmverts[ix] for ix in ix_vs)
+                verts_directions.append((verts, directions))
+        else:
+            verts_directions = offset_infos
+            edges_orig = list(set_edges_orig)
 
         if self.depth_mode == 'angle':
             w = self.width if not self.flip_width else -self.width
@@ -615,63 +672,153 @@ class OffsetEdges(bpy.types.Operator):
             width = self.width if not self.flip_width else -self.width
             depth = self.depth if not self.flip_depth else -self.depth
 
-        vec_upward = (X_UP + Y_UP + Z_UP).normalized()
-        # vec_upward is used to unify loop normals when follow_face is off.
-        normal_fallback = Z_UP
-        #normal_fallback = Vector(context.region_data.view_matrix[2][:3])
-        # normal_fallback is used when loop normal cannot be calculated.
-
+        # Extrude
         if self.geometry_mode == 'move':
             geom_ex = None
         else:
-            geom_ex = extrude_edges(bm, set_offset_edges)
+            geom_ex = extrude_edges(bm, edges_orig)
 
-        follow_face = self.follow_face
-        edge_rail = self.edge_rail
-        er_only_end = self.edge_rail_only_end
-        threshold = self.threshold
-        for lp in loops:
-            verts, directions = get_verts_and_directions(
-                lp, vec_upward, normal_fallback, vert_mirror_pairs,
-                follow_face=follow_face, edge_rail=edge_rail,
-                edge_rail_only_end=er_only_end, threshold=threshold)
-            if verts:
-                do_offset(width, depth, verts, directions, geom_ex)
+        for verts, directions in verts_directions:
+            move_verts(width, depth, verts, directions, geom_ex)
 
-        clean(bm, self.geometry_mode, set_offset_edges, geom_ex)
+        clean(bm, self.geometry_mode, edges_orig, geom_ex)
 
         bm.to_mesh(me)
         bm.free()
-        bpy.ops.object.editmode_toggle()
+        self.caches_valid = False  # Make caches invalid.
 
-        #print("Time of offset_edges: ", perf_counter() - time_start)
+        #print("OffsetEdges offset: ", perf_counter() - time)
+
+    def execute(self, context):
+        # In edit mode
+        edit_object = context.edit_object
+        bpy.ops.object.editmode_toggle()
+        # In object mode
+
+        me = edit_object.data
+        bm = bmesh.new()
+        bm.from_mesh(me)
+
+        offset_infos, edges_orig = self.get_offset_infos(bm, edit_object)
+        if offset_infos is False:
+            return {'CANCELLED'}
+
+        self.do_offset_and_free(bm, me, offset_infos, edges_orig)
+
+        bpy.ops.object.editmode_toggle()
+        # In edit mode
         return {'FINISHED'}
 
+    def restore_original_and_free(self, context):
+        self.caches_valid = False  # Make caches invalid.
+        context.area.header_text_set()
+
+        me = context.edit_object.data
+        bpy.ops.object.editmode_toggle()
+        # In object mode
+        self._bm_orig.to_mesh(me)
+        self._bm_orig.free()
+        context.area.header_text_set()
+        bpy.ops.object.editmode_toggle()
+        # In edit mode
+
+    def modal(self, context, event):
+        # In edit mode
+        if event.type == 'MOUSEMOVE':
+            edit_object = context.edit_object
+            me = edit_object.data
+
+            vec_delta = Vector((event.mouse_x, event.mouse_y)) - self._initial_mouse
+            #self.width = copysign(vec_delta.length, vec_delta.dot(X_UP)) * 0.01
+            self.width = vec_delta.x * 0.01
+            #self.angle = vec_delta.y * 0.01
+            offset_infos, _ = self.get_offset_infos(self._bm_orig, edit_object)
+            if offset_infos is False:
+                self.restore_original_and_free(context)
+                return {'CANCELLED'}
+            else:
+                context.area.header_text_set("Width {: .4}".format(self.width))
+                bpy.ops.object.editmode_toggle()
+                # In object mode
+                self.do_offset_and_free(self._bm_orig.copy(), me)
+                bpy.ops.object.editmode_toggle()
+                # In edit mode
+                return {'RUNNING_MODAL'}
+
+        elif event.type in {'RIGHTMOUSE', 'ESC'}:
+            self.restore_original_and_free(context)
+            return {'CANCELLED'}
+
+        elif event.type == 'LEFTMOUSE':
+            context.area.header_text_set()
+            self._bm_orig.free()
+            self.caches_valid = False  # Make caches invalid
+            return {'FINISHED'}
+
+        return {'RUNNING_MODAL'}
+
     def invoke(self, context, event):
+        # In edit mode
         edit_object = context.edit_object
         me = edit_object.data
         bpy.ops.object.editmode_toggle()
+        # In object mode
         for p in me.polygons:
             if p.select:
                 self.follow_face = True
                 break
-        bpy.ops.object.editmode_toggle()
+        #bpy.ops.object.editmode_toggle()
+        ## In edit mode
+        #return self.execute(context)
 
-        return self.execute(context)
+        self.caches_valid = False
+        if self.interactive and context.space_data.type == 'VIEW_3D':
+            self.interactive = False
+            _bm_orig = bmesh.new()
+            _bm_orig.from_mesh(me)
+            self._bm_orig = _bm_orig
+            self.angle = self.depth = .0
+            self._initial_mouse = Vector((event.mouse_x, event.mouse_y))
+            context.window_manager.modal_handler_add(self)
+            bpy.ops.object.editmode_toggle()
+            # In edit mode
+            return {'RUNNING_MODAL'}
+        else:
+            self.interactive = False
+            bpy.ops.object.editmode_toggle()
+            # In edit mode
+            return self.execute(context)
 
+class OffsetEdgesMenu(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_edit_mesh_edges_offset"
+    bl_label = "Offset Edges"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator_context = 'INVOKE_DEFAULT'
+
+        off = layout.operator('mesh.offset_edges', text='Offset')
+        off.geometry_mode = 'offset'
+
+        ext = layout.operator('mesh.offset_edges', text='Extrude')
+        ext.geometry_mode = 'extrude'
+
+        mov = layout.operator('mesh.offset_edges', text='Move')
+        mov.geometry_mode = 'move'
+
+        #off.interactive = ext.interactive = mov.interactive = True
 
 def draw_item(self, context):
-    self.layout.operator_context = 'INVOKE_DEFAULT'
-    self.layout.operator_menu_enum('mesh.offset_edges', 'geometry_mode')
+    self.layout.menu("VIEW3D_MT_edit_mesh_edges_offset")
 
 
 def register():
-    bpy.utils.register_class(OffsetEdges)
+    bpy.utils.register_module(__name__)
     bpy.types.VIEW3D_MT_edit_mesh_edges.append(draw_item)
 
 
 def unregister():
-    bpy.utils.unregister_class(OffsetEdges)
+    bpy.utils.unregister_module(__name__)
     bpy.types.VIEW3D_MT_edit_mesh_edges.remove(draw_item)
 
 
