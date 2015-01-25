@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 2, 2),
+    "version": (0, 2, 3),
     "blender": (2, 70, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -67,7 +67,7 @@ def calc_normal_from_verts(verts, fallback=Z_UP):
 
     return normal
 
-def get_corner_type(vec_up, vec_right2d, vec_left2d, threshold):
+def get_corner_type(vec_up, vec_right2d, vec_left2d, threshold_edge):
     # vec_right2d and vec_left2d should be perpendicular to vec_up.
     # All vectors in parameters should have been normalized.
     if vec_right2d == vec_left2d == ZERO_VEC:
@@ -76,22 +76,22 @@ def get_corner_type(vec_up, vec_right2d, vec_left2d, threshold):
         return 'STRAIGHT'
 
     angle = vec_right2d.angle(vec_left2d)
-    if angle < threshold:
+    if angle < threshold_edge:
         return 'FOLDING'
-    elif angle > ANGLE_180 - threshold:
+    elif angle > ANGLE_180 - threshold_edge:
         return 'STRAIGHT'
     elif vec_right2d.cross(vec_left2d).dot(vec_up) > .0:
         return 'CONVEX'
     else:
         return 'CONCAVE'
 
-def calc_tangent(vec_up, vec_right, vec_left, threshold):
+def calc_tangent(vec_up, vec_right, vec_left, threshold_edge):
     vec_right2d = vec_right- vec_right.project(vec_up)
     vec_right2d.normalize()
     vec_left2d = vec_left- vec_left.project(vec_up)
     vec_right2d.normalize()
 
-    corner = get_corner_type(vec_up, vec_right2d, vec_left2d, threshold)
+    corner = get_corner_type(vec_up, vec_right2d, vec_left2d, threshold_edge)
     if corner == 'FOLDING':
         vec_tangent = ZERO_VEC
     elif corner == 'STRAIGHT':
@@ -237,7 +237,7 @@ def get_adj_ix(ix_start, vec_edges, half_loop):
 
     return ix_right, ix_left
 
-def get_normals(lp_normal, adj_faces, ix_r, ix_l, vert):
+def get_normals(lp_normal, adj_faces, ix_r, ix_l, vert, threshold_face):
     normal_r = normal_l = None
     if adj_faces:
         f_r, f_l = adj_faces[ix_r], adj_faces[ix_l]
@@ -252,7 +252,10 @@ def get_normals(lp_normal, adj_faces, ix_r, ix_l, vert):
 
     if normal_r and normal_l:
         vec_up = (normal_r + normal_l).normalized()
-        if vec_up == ZERO_VEC:
+        if normal_r.angle(normal_l) < threshold_face:
+            # Two normals are almost same, so assign None to normal_l
+            normal_l = None
+        elif vec_up == ZERO_VEC:
             vec_up = lp_normal.copy()
     elif normal_r or normal_l:
         vec_up = (normal_r or normal_l).copy()
@@ -311,12 +314,8 @@ def get_edge_rail(vert, set_edges_orig):
     else:
         return None
 
-def get_cross_rail(vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l, threshold):
+def get_cross_rail(vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l):
     # Cross rail is a cross vector between normal_r and normal_l.
-    angle = normal_r.angle(normal_l)
-    if angle < threshold:
-        # normal_r and normal_l are almost same
-        return None
 
     vec_cross = normal_r.cross(normal_l)
     if vec_cross.dot(vec_tan) < .0:
@@ -433,7 +432,8 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
     opt_follow_face = options['follow_face']
     opt_edge_rail = options['edge_rail']
     opt_er_only_end = options['edge_rail_only_end']
-    opt_threshold = options['threshold']
+    opt_threshold_edge = options['threshold_edge']
+    opt_threshold_face = options['threshold_face']
 
     verts, edges = lp[::2], lp[1::2]
     set_edges = set(edges)
@@ -480,24 +480,30 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
         vec_edge_r = vec_edges[ix_r]
         vec_edge_l = -vec_edges[ix_l]
 
-        vec_up, normal_r, normal_l = get_normals(lp_normal, adj_faces, ix_r, ix_l, v)
-        vec_tan = calc_tangent(vec_up, vec_edge_r, vec_edge_l, opt_threshold)
+        vec_up, normal_r, normal_l = \
+            get_normals(lp_normal, adj_faces, ix_r, ix_l, v, opt_threshold_face)
+        vec_tan = calc_tangent(vec_up, vec_edge_r, vec_edge_l, opt_threshold_edge)
 
         if vec_tan != ZERO_VEC:
+            if normal_r and normal_l:
+                two_normals = True
+            else:
+                two_normals = False
+
             rail = None
             if vert_mirror_pairs and VERT_END:
                 if v in vert_mirror_pairs:
                     rail, vec_up = get_mirror_rail(vert_mirror_pairs[v], vec_up)
-            if opt_edge_rail:
+            if two_normals or opt_edge_rail:
                 # Get edge rail.
                 # edge rail is a vector of an inner edge.
-                if (not opt_er_only_end) or VERT_END:
+                if two_normals or (not opt_er_only_end) or VERT_END:
                     rail = get_edge_rail(v, set_edges)
-            if (not rail) and normal_r and normal_l:
+            if (not rail) and two_normals:
                 # Get cross rail.
                 # Cross rail is a cross vector between normal_r and normal_l.
                 rail = get_cross_rail(
-                    vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l, opt_threshold)
+                    vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l)
             if rail:
                 vec_tan = vec_tan.project(rail)
                 vec_tan.normalize()
@@ -541,7 +547,7 @@ class OffsetEdges(bpy.types.Operator):
                ('depth', "Depth", "Depth")],
         name="Depth mode", default='angle', update=use_cashes)
     angle = bpy.props.FloatProperty(
-        name="Angle", default=0, step=.1, min=-4*pi, max=4*pi,
+        name="Angle", default=0, precision=3, step=.1, min=-4*pi, max=4*pi,
         subtype='ANGLE', description="Angle", update=use_cashes)
     flip_angle = bpy.props.BoolProperty(
         name="Flip Angle", default=False,
@@ -558,9 +564,13 @@ class OffsetEdges(bpy.types.Operator):
     edge_rail_only_end = bpy.props.BoolProperty(
         name="Edge Rail Only End", default=False,
         description="Apply edge rail to end verts only")
-    threshold = bpy.props.FloatProperty(
-        name="Threshold", default=1.0e-5, step=.1, subtype='ANGLE',
-        description="Angle threshold which determines straight or folding edges",
+    threshold_face = bpy.props.FloatProperty(
+        name="Face Threshold", default=1.0e-3, precision=7, step=1.0e-4, subtype='ANGLE',
+        description="Threshold of normal angle which determines flat faces",
+        options={'HIDDEN'})
+    threshold_edge = bpy.props.FloatProperty(
+        name="Edge Threshold", default=1.0e-4, precision=7, step=1.0e-4, subtype='ANGLE',
+        description="Threshold of Edge angle which determines straight or folding",
         options={'HIDDEN'})
     interactive = bpy.props.BoolProperty(
         name="Interactive", default=False,
@@ -607,6 +617,11 @@ class OffsetEdges(bpy.types.Operator):
 
         layout.prop(self, 'mirror_modifier')
 
+        layout.separator()
+        box = layout.box()
+        box.label("Threshold:")
+        box.prop(self, 'threshold_face', text="Face")
+        box.prop(self, 'threshold_edge', text="Edge")
         #layout.operator('mesh.offset_edges', text='Repeat')
 
     def get_offset_infos(self, bm, edit_object):
@@ -651,14 +666,16 @@ class OffsetEdges(bpy.types.Operator):
         follow_face = self.follow_face
         edge_rail = self.edge_rail
         er_only_end = self.edge_rail_only_end
-        threshold = self.threshold
+        threshold_f = self.threshold_face
+        threshold_e = self.threshold_edge
 
         offset_infos = []
         for lp in loops:
             verts, directions = get_directions(
                 lp, vec_upward, normal_fallback, vert_mirror_pairs,
                 follow_face=follow_face, edge_rail=edge_rail,
-                edge_rail_only_end=er_only_end, threshold=threshold)
+                edge_rail_only_end=er_only_end,
+                threshold_face=threshold_f, threshold_edge=threshold_e)
             if verts:
                 offset_infos.append((verts, directions))
 
@@ -731,6 +748,8 @@ class OffsetEdges(bpy.types.Operator):
 
         offset_infos, edges_orig = self.get_offset_infos(bm, edit_object)
         if offset_infos is False:
+            bpy.ops.object.editmode_toggle()
+            # In object mode
             return {'CANCELLED'}
 
         self.do_offset_and_free(bm, me, offset_infos, edges_orig)
