@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 2, 3),
+    "version": (0, 2, 4),
     "blender": (2, 70, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -32,7 +32,7 @@ bl_info = {
     "category": "Mesh"}
 
 import math
-from math import sin, cos, pi, copysign
+from math import sin, cos, pi, copysign, sqrt
 import bpy
 import bmesh
 from mathutils import Vector
@@ -61,60 +61,21 @@ def calc_normal_from_verts(verts, fallback=Z_UP):
         normal.y += (v1co.z - v2co.z) * (v1co.x + v2co.x)
         normal.z += (v1co.x - v2co.x) * (v1co.y + v2co.y)
 
-    normal.normalize()
-    if normal == ZERO_VEC:
+    if normal != ZERO_VEC:
+        normal.normalize()
+    else:
         normal = fallback
 
     return normal
 
-def get_corner_type(vec_up, vec_right2d, vec_left2d, threshold_edge):
-    # vec_right2d and vec_left2d should be perpendicular to vec_up.
-    # All vectors in parameters should have been normalized.
-    if vec_right2d == vec_left2d == ZERO_VEC:
-        return 'FOLDING'
-    elif vec_right2d == ZERO_VEC or vec_left2d == ZERO_VEC:
-        return 'STRAIGHT'
-
-    angle = vec_right2d.angle(vec_left2d)
-    if angle < threshold_edge:
-        return 'FOLDING'
-    elif angle > ANGLE_180 - threshold_edge:
-        return 'STRAIGHT'
-    elif vec_right2d.cross(vec_left2d).dot(vec_up) > .0:
-        return 'CONVEX'
-    else:
-        return 'CONCAVE'
-
-def calc_tangent(vec_up, vec_right, vec_left, threshold_edge):
-    vec_right2d = vec_right- vec_right.project(vec_up)
-    vec_right2d.normalize()
-    vec_left2d = vec_left- vec_left.project(vec_up)
-    vec_right2d.normalize()
-
-    corner = get_corner_type(vec_up, vec_right2d, vec_left2d, threshold_edge)
-    if corner == 'FOLDING':
-        vec_tangent = ZERO_VEC
-    elif corner == 'STRAIGHT':
-        if vec_right2d.length >= vec_left2d.length:
-            vec_longer = vec_right2d
-        else:
-            vec_longer = -vec_left2d
-        vec_tangent = vec_longer.cross(vec_up)
-    elif corner == 'CONVEX':
-        vec_tangent = vec_right2d + vec_left2d
-        vec_tangent *= -1
-    elif corner == 'CONCAVE':
-        vec_tangent = vec_right2d + vec_left2d
-
-    vec_tangent.normalize()
-
-    return vec_tangent
-
 def get_factor(vec_direction, vec_right, vec_left, func=max):
+    # All vectors should have been normalized.
     if vec_direction == ZERO_VEC:
         return .0
 
-    denominator = func(sin(vec_direction.angle(vec_right)), sin(vec_direction.angle(vec_left)))
+    sin_r = sqrt(1.0 - min(vec_right.dot(vec_direction) ** 2, 1.0))
+    sin_l = sqrt(1.0 - min(vec_left.dot(vec_direction) ** 2, 1.0))
+    denominator = func(sin_r, sin_l)
     if denominator != .0:
         return 1.0 / denominator
     else:
@@ -237,58 +198,58 @@ def get_adj_ix(ix_start, vec_edges, half_loop):
 
     return ix_right, ix_left
 
-def get_normals(lp_normal, adj_faces, ix_r, ix_l, vert, threshold_face):
+def get_normals(lp_normal, adj_faces, ix_r, ix_l, vert, threshold):
     normal_r = normal_l = None
     if adj_faces:
         f_r, f_l = adj_faces[ix_r], adj_faces[ix_l]
-        if f_r:
-            normal_r = f_r.normal
-        if f_l:
-            normal_l = f_l.normal
         if f_r is None and f_l is None:
             # Use vert normal
             if vert.normal != ZERO_VEC:
                 normal_r = vert.normal
+        else:
+            if f_r:
+                normal_r = f_r.normal
+            if f_l:
+                normal_l = f_l.normal
+            if normal_r and normal_l:
+                if normal_r.angle(normal_l) < threshold:
+                    # Two normals are almost same, so assign None to normal_l
+                    normal_r = (normal_r + normal_l).normalized()
+                    normal_l = None
 
     if normal_r and normal_l:
         vec_up = (normal_r + normal_l).normalized()
-        if normal_r.angle(normal_l) < threshold_face:
-            # Two normals are almost same, so assign None to normal_l
-            normal_l = None
-        elif vec_up == ZERO_VEC:
-            vec_up = lp_normal.copy()
+        if vec_up == ZERO_VEC:
+            vec_up = lp_normal
     elif normal_r or normal_l:
-        vec_up = (normal_r or normal_l).copy()
+        vec_up = normal_r or normal_l
     else:
-        vec_up = lp_normal.copy()
+        vec_up = lp_normal
 
-    return vec_up, normal_r, normal_l
+    return vec_up.copy(), normal_r, normal_l
 
 def get_adj_faces(edges):
     adj_faces = []
-    adj_exist = False
     for e in edges:
-        face = None
+        adj_f = None
         co_adj = 0
         for f in e.link_faces:
             # Search an adjacent face.
             # Selected face has precedance.
             if not f.hide and f.normal != ZERO_VEC:
                 adj_exist = True
-                face = f
+                adj_f = f
                 co_adj += 1
                 if f.select:
-                    adj_faces.append(f)
+                    adj_faces.append(adj_f)
                     break
         else:
             if co_adj == 1:
-                adj_faces.append(face)
+                adj_faces.append(adj_f)
             else:
                 adj_faces.append(None)
-    if adj_exist:
-        return adj_faces
-    else:
-        return None
+    return adj_faces
+
 
 def get_edge_rail(vert, set_edges_orig):
     co_edges = co_edges_selected = 0
@@ -307,9 +268,11 @@ def get_edge_rail(vert, set_edges_orig):
                 else:
                     co_edges += 1
     if co_edges_selected == 1:
+        vec_inner.normalize()
         return vec_inner
     elif co_edges == 1:
         # No selected edges, one unselected edge.
+        vec_inner.normalize()
         return vec_inner
     else:
         return None
@@ -320,9 +283,10 @@ def get_cross_rail(vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l):
     vec_cross = normal_r.cross(normal_l)
     if vec_cross.dot(vec_tan) < .0:
         vec_cross *= -1
-    cos_min = min(vec_tan.dot(vec_edge_r), vec_tan.dot(vec_edge_l))
+    cos_min = min(vec_tan.dot(vec_edge_r), vec_tan.dot(-vec_edge_l))
     cos = vec_tan.dot(vec_cross)
     if cos >= cos_min:
+        vec_cross.normalize()
         return vec_cross
     else:
         return None
@@ -419,6 +383,7 @@ def get_mirror_rail(mirror_plane, vec_up):
     p_norm = mirror_plane[1]
     mirror_rail = vec_up.cross(p_norm)
     if mirror_rail != ZERO_VEC:
+        mirror_rail.normalize()
         # Project vec_up to mirror_plane
         vec_up = vec_up - vec_up.project(p_norm)
         vec_up.normalize()
@@ -426,14 +391,38 @@ def get_mirror_rail(mirror_plane, vec_up):
     else:
         return None, vec_up
 
+def reorder_loop(verts, edges, lp_normal, adj_faces):
+    for i, adj_f in enumerate(adj_faces):
+        if adj_f is None:
+            continue
+        v1, v2 = verts[i], verts[i+1]
+        e = edges[i]
+        fv = tuple(adj_f.verts)
+        if fv[fv.index(v1)-1] is v2:
+            # Align loop direction
+            verts.reverse()
+            edges.reverse()
+            adj_faces.reverse()
+        if lp_normal.dot(adj_f.normal) < .0:
+            lp_normal *= -1
+        break
+    else:
+        # All elements in adj_faces are None
+        for v in verts:
+            if v.normal != ZERO_VEC:
+                if normal.dot(v.normal) < .0:
+                    verts.reverse()
+                    edges.reverse()
+                    lp_normal *= -1
+                break
+
+    return verts, edges, lp_normal, adj_faces
+
 def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options):
-    # vec_front is used when loop normal couldn't calculated because the loop is straight.
-    # vec_upward is used in order to unify all loop normals when follow_face is off.
     opt_follow_face = options['follow_face']
     opt_edge_rail = options['edge_rail']
     opt_er_only_end = options['edge_rail_only_end']
-    opt_threshold_edge = options['threshold_edge']
-    opt_threshold_face = options['threshold_face']
+    opt_threshold = options['threshold']
 
     verts, edges = lp[::2], lp[1::2]
     set_edges = set(edges)
@@ -441,18 +430,17 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
 
     ##### Loop order might be changed below.
     if lp_normal.dot(vec_upward) < .0:
-        # Keep consistent loop normal.
+        # Make this loop's normal towards vec_upward.
         verts.reverse()
         edges.reverse()
         lp_normal *= -1
 
     if opt_follow_face:
         adj_faces = get_adj_faces(edges)
-        if adj_faces:
-            verts, edges, lp_normal, adj_faces = \
-                reorder_loop(verts, edges, lp_normal, adj_faces)
+        verts, edges, lp_normal, adj_faces = \
+            reorder_loop(verts, edges, lp_normal, adj_faces)
     else:
-        adj_faces = None
+        adj_faces = (None, ) * len(edges)
     ##### Loop order might be changed above.
 
     vec_edges = [(e.other_vert(v).co - v.co).normalized() for v, e in zip(verts, edges)]
@@ -468,51 +456,63 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
     len_verts = len(verts)
     directions = []
     for i in range(len_verts):
-        v = verts[i]
-        if HALF_LOOP and (i == 0 or i == len_verts-1):
-            VERT_END = True
-        else:
-            VERT_END = False
-        ix_r, ix_l = get_adj_ix(i, vec_edges, HALF_LOOP)
-        if ix_r is None:
-            # Length of this loop is zero.
-            return [], []
-        vec_edge_r = vec_edges[ix_r]
-        vec_edge_l = -vec_edges[ix_l]
+        vert = verts[i]
+        ix_right, ix_left = i, i-1
 
-        vec_up, normal_r, normal_l = \
-            get_normals(lp_normal, adj_faces, ix_r, ix_l, v, opt_threshold_face)
-        vec_tan = calc_tangent(vec_up, vec_edge_r, vec_edge_l, opt_threshold_edge)
+        VERT_END = False
+        if HALF_LOOP:
+            if i == 0:
+                # First vert
+                ix_left = ix_right
+                VERT_END = True
+            elif i == len_verts - 1:
+                # Last vert
+                ix_right = ix_left
+                VERT_END = True
+
+        edge_right, edge_left = vec_edges[ix_right], vec_edges[ix_left]
+        face_right, face_left = adj_faces[ix_right], adj_faces[ix_left]
+        norm_right = face_right.normal if face_right else lp_normal
+        norm_left = face_left.normal if face_left else lp_normal
+
+        tan_right = edge_right.cross(norm_right).normalized()
+        tan_left = edge_left.cross(norm_left).normalized()
+        vec_tan = (tan_right + tan_left).normalized()
+        vec_up = (norm_right + norm_left).normalized()
 
         if vec_tan != ZERO_VEC:
-            if normal_r and normal_l:
-                two_normals = True
-            else:
+            if norm_right.angle(norm_left) < opt_threshold:
+                # Two normals are almost same, so assign None to normal_l
                 two_normals = False
+            else:
+                two_normals = True
 
             rail = None
             if vert_mirror_pairs and VERT_END:
-                if v in vert_mirror_pairs:
-                    rail, vec_up = get_mirror_rail(vert_mirror_pairs[v], vec_up)
+                if vert in vert_mirror_pairs:
+                    rail, vec_up = get_mirror_rail(vert_mirror_pairs[vert], vec_up)
             if two_normals or opt_edge_rail:
                 # Get edge rail.
                 # edge rail is a vector of an inner edge.
                 if two_normals or (not opt_er_only_end) or VERT_END:
-                    rail = get_edge_rail(v, set_edges)
+                    rail = get_edge_rail(vert, set_edges)
             if (not rail) and two_normals:
                 # Get cross rail.
-                # Cross rail is a cross vector between normal_r and normal_l.
+                # Cross rail is a cross vector between norm_right and norm_left.
                 rail = get_cross_rail(
-                    vec_tan, vec_edge_r, vec_edge_l, normal_r, normal_l)
+                    vec_tan, edge_right, edge_left, norm_right, norm_left)
             if rail:
-                vec_tan = vec_tan.project(rail)
-                vec_tan.normalize()
-                # Make vec_up perpendicular to vec_tan.
-                vec_up -= vec_up.project(rail)
-                vec_up.normalize()
+                if vec_tan.dot(rail) >= .0:
+                    vec_tan = rail
+                else:
+                    vec_tan = -rail
 
-        vec_tan *= get_factor(vec_tan, vec_edge_r, vec_edge_l)
-        vec_up *= get_factor(vec_up, vec_edge_r, vec_edge_l)
+            # Make vec_up perpendicular to vec_tan.
+            vec_up -= vec_up.project(vec_tan)
+            vec_up.normalize()
+
+        vec_tan *= get_factor(vec_tan, edge_right, edge_left)
+        vec_up *= get_factor(vec_up, edge_right, edge_left)
         directions.append((vec_tan, vec_up))
 
     return verts, directions
@@ -564,13 +564,9 @@ class OffsetEdges(bpy.types.Operator):
     edge_rail_only_end = bpy.props.BoolProperty(
         name="Edge Rail Only End", default=False,
         description="Apply edge rail to end verts only")
-    threshold_face = bpy.props.FloatProperty(
-        name="Face Threshold", default=1.0e-3, precision=7, step=1.0e-4, subtype='ANGLE',
+    threshold = bpy.props.FloatProperty(
+        name="Threshold", default=1.0e-3, precision=7, step=1.0e-4, subtype='ANGLE',
         description="Threshold of normal angle which determines flat faces",
-        options={'HIDDEN'})
-    threshold_edge = bpy.props.FloatProperty(
-        name="Edge Threshold", default=1.0e-4, precision=7, step=1.0e-4, subtype='ANGLE',
-        description="Threshold of Edge angle which determines straight or folding",
         options={'HIDDEN'})
     interactive = bpy.props.BoolProperty(
         name="Interactive", default=False,
@@ -618,10 +614,8 @@ class OffsetEdges(bpy.types.Operator):
         layout.prop(self, 'mirror_modifier')
 
         layout.separator()
-        box = layout.box()
-        box.label("Threshold:")
-        box.prop(self, 'threshold_face', text="Face")
-        box.prop(self, 'threshold_edge', text="Edge")
+        layout.label("Advanced:")
+        layout.prop(self, 'threshold')
         #layout.operator('mesh.offset_edges', text='Repeat')
 
     def get_offset_infos(self, bm, edit_object):
@@ -666,8 +660,7 @@ class OffsetEdges(bpy.types.Operator):
         follow_face = self.follow_face
         edge_rail = self.edge_rail
         er_only_end = self.edge_rail_only_end
-        threshold_f = self.threshold_face
-        threshold_e = self.threshold_edge
+        threshold = self.threshold
 
         offset_infos = []
         for lp in loops:
@@ -675,7 +668,7 @@ class OffsetEdges(bpy.types.Operator):
                 lp, vec_upward, normal_fallback, vert_mirror_pairs,
                 follow_face=follow_face, edge_rail=edge_rail,
                 edge_rail_only_end=er_only_end,
-                threshold_face=threshold_f, threshold_edge=threshold_e)
+                threshold=threshold)
             if verts:
                 offset_infos.append((verts, directions))
 
