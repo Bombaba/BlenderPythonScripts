@@ -198,36 +198,6 @@ def get_adj_ix(ix_start, vec_edges, half_loop):
 
     return ix_right, ix_left
 
-def get_normals(lp_normal, adj_faces, ix_r, ix_l, vert, threshold):
-    normal_r = normal_l = None
-    if adj_faces:
-        f_r, f_l = adj_faces[ix_r], adj_faces[ix_l]
-        if f_r is None and f_l is None:
-            # Use vert normal
-            if vert.normal != ZERO_VEC:
-                normal_r = vert.normal
-        else:
-            if f_r:
-                normal_r = f_r.normal
-            if f_l:
-                normal_l = f_l.normal
-            if normal_r and normal_l:
-                if normal_r.angle(normal_l) < threshold:
-                    # Two normals are almost same, so assign None to normal_l
-                    normal_r = (normal_r + normal_l).normalized()
-                    normal_l = None
-
-    if normal_r and normal_l:
-        vec_up = (normal_r + normal_l).normalized()
-        if vec_up == ZERO_VEC:
-            vec_up = lp_normal
-    elif normal_r or normal_l:
-        vec_up = normal_r or normal_l
-    else:
-        vec_up = lp_normal
-
-    return vec_up.copy(), normal_r, normal_l
-
 def get_adj_faces(edges):
     adj_faces = []
     for e in edges:
@@ -472,8 +442,18 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
 
         edge_right, edge_left = vec_edges[ix_right], vec_edges[ix_left]
         face_right, face_left = adj_faces[ix_right], adj_faces[ix_left]
-        norm_right = face_right.normal if face_right else lp_normal
-        norm_left = face_left.normal if face_left else lp_normal
+
+        two_normals = False
+        if face_right and face_left:
+            norm_right = face_right.normal
+            norm_left = face_left.normal
+            if norm_right.cross(norm_left).length > opt_threshold:
+                # Two normals are different.
+                two_normals = True
+        elif face_right or face_left:
+            norm_right = norm_left = (face_right or face_left).normal
+        else:
+            norm_right = norm_left = lp_normal
 
         tan_right = edge_right.cross(norm_right).normalized()
         tan_left = edge_left.cross(norm_left).normalized()
@@ -481,12 +461,6 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
         vec_up = (norm_right + norm_left).normalized()
 
         if vec_tan != ZERO_VEC:
-            if norm_right.angle(norm_left) < opt_threshold:
-                # Two normals are almost same, so assign None to normal_l
-                two_normals = False
-            else:
-                two_normals = True
-
             rail = None
             if vert_mirror_pairs and VERT_END:
                 if vert in vert_mirror_pairs:
@@ -565,8 +539,8 @@ class OffsetEdges(bpy.types.Operator):
         name="Edge Rail Only End", default=False,
         description="Apply edge rail to end verts only")
     threshold = bpy.props.FloatProperty(
-        name="Threshold", default=1.0e-3, precision=7, step=1.0e-4, subtype='ANGLE',
-        description="Threshold of normal angle which determines flat faces",
+        name="Threshold", default=1.0e-3, precision=5, step=1.0e-4,
+        description="Threshold which determines flat faces",
         options={'HIDDEN'})
     interactive = bpy.props.BoolProperty(
         name="Interactive", default=False,
