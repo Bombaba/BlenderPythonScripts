@@ -17,12 +17,10 @@
 #
 # ***** END GPL LICENCE BLOCK *****
 
-# <pep8 compliant>
-
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 2, 4),
+    "version": (0, 2, 5),
     "blender": (2, 70, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -47,16 +45,19 @@ ANGLE_180 = pi
 ANGLE_360 = 2 * pi
 
 
-def calc_normal_from_verts(verts, fallback=Z_UP):
+def calc_loop_normal(verts, fallback=Z_UP):
     # Calculate normal from verts using Newell's method.
     normal = ZERO_VEC.copy()
 
-    verts_2 = verts[1:]
-    if verts[0] is not verts[-1]:
-        # Half loop.
-        verts_2.append(verts[0])
-    for v1, v2 in zip(verts, verts_2):
-        v1co, v2co = v1.co, v2.co
+    if verts[0] is verts[-1]:
+        # Perfect loop
+        range_verts = range(1, len(verts))
+    else:
+        # Half loop
+        range_verts = range(0, len(verts))
+
+    for i in range_verts:
+        v1co, v2co = verts[i-1].co, verts[i].co
         normal.x += (v1co.y - v2co.y) * (v1co.z + v2co.z)
         normal.y += (v1co.z - v2co.z) * (v1co.x + v2co.x)
         normal.z += (v1co.x - v2co.x) * (v1co.y + v2co.y)
@@ -356,7 +357,7 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
 
     verts, edges = lp[::2], lp[1::2]
     set_edges = set(edges)
-    lp_normal = calc_normal_from_verts(verts, fallback=normal_fallback)
+    lp_normal = calc_loop_normal(verts, fallback=normal_fallback)
 
     ##### Loop order might be changed below.
     if lp_normal.dot(vec_upward) < .0:
@@ -373,7 +374,8 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
         adj_faces = (None, ) * len(edges)
     ##### Loop order might be changed above.
 
-    vec_edges = [(e.other_vert(v).co - v.co).normalized() for v, e in zip(verts, edges)]
+    vec_edges = tuple((e.other_vert(v).co - v.co).normalized()
+                      for v, e in zip(verts, edges))
 
     if verts[0] is verts[-1]:
         # Real loop. Popping last vertex.
@@ -403,57 +405,56 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
         edge_right, edge_left = vec_edges[ix_right], vec_edges[ix_left]
         face_right, face_left = adj_faces[ix_right], adj_faces[ix_left]
 
-        two_normals = False
-        if face_right and face_left:
-            norm_right = face_right.normal
-            norm_left = face_left.normal
-            if norm_right.angle(norm_left) > opt_threshold:
-                # Two normals are different.
-                two_normals = True
-        elif face_right or face_left:
-            norm_right = norm_left = (face_right or face_left).normal
+        norm_right = face_right.normal if face_right else lp_normal
+        norm_left = face_left.normal if face_left else lp_normal
+        if norm_right.angle(norm_left) > opt_threshold:
+            # Two faces are not flat.
+            two_normals = True
         else:
-            norm_right = norm_left = lp_normal
+            two_normals = False
 
         tan_right = edge_right.cross(norm_right).normalized()
         tan_left = edge_left.cross(norm_left).normalized()
         tan_avr = (tan_right + tan_left).normalized()
         norm_avr = (norm_right + norm_left).normalized()
 
-        if tan_avr != ZERO_VEC:
-            rail = None
-            if vert_mirror_pairs and VERT_END:
-                if vert in vert_mirror_pairs:
-                    rail, norm_avr = get_mirror_rail(vert_mirror_pairs[vert], norm_avr)
-            if two_normals or opt_edge_rail:
-                # Get edge rail.
-                # edge rail is a vector of an inner edge.
-                if two_normals or (not opt_er_only_end) or VERT_END:
-                    rail = get_edge_rail(vert, set_edges)
-            if (not rail) and two_normals:
-                # Get cross rail.
-                # Cross rail is a cross vector between norm_right and norm_left.
-                rail = get_cross_rail(
-                    tan_avr, edge_right, edge_left, norm_right, norm_left)
-            if rail:
-                if tan_avr.dot(rail) >= .0:
-                    tan_avr = rail
-                else:
-                    tan_avr = -rail
+        rail = None
+        if two_normals or opt_edge_rail:
+            # Get edge rail.
+            # edge rail is a vector of an inner edge.
+            if two_normals or (not opt_er_only_end) or VERT_END:
+                rail = get_edge_rail(vert, set_edges)
+        if vert_mirror_pairs and VERT_END:
+            if vert in vert_mirror_pairs:
+                rail, norm_avr = \
+                    get_mirror_rail(vert_mirror_pairs[vert], norm_avr)
+        if (not rail) and two_normals:
+            # Get cross rail.
+            # Cross rail is a cross vector between norm_right and norm_left.
+            rail = get_cross_rail(
+                tan_avr, edge_right, edge_left, norm_right, norm_left)
+        if rail:
+            dot = tan_avr.dot(rail)
+            if dot > .0:
+                tan_avr = rail
+            elif dot < .0:
+                tan_avr = -rail
 
         vec_plane = norm_avr.cross(tan_avr)
         e_dot_p_r = edge_right.dot(vec_plane)
         e_dot_p_l = edge_left.dot(vec_plane)
         if e_dot_p_r or e_dot_p_l:
             if e_dot_p_r > e_dot_p_l:
-                vec_edge, vec_tan, vec_norm = edge_right, tan_right, norm_right
-                e_dot_p = e_dot_p_r
+                vec_edge, e_dot_p = edge_right, e_dot_p_r
             else:
-                vec_edge, vec_tan, vec_norm = edge_left, tan_left, norm_left
-                e_dot_p = e_dot_p_l
+                vec_edge, e_dot_p = edge_left, e_dot_p_l
+
+            vec_tan = (tan_avr - tan_avr.project(vec_edge)).normalized()
+            # Make vec_tan perpendicular to vec_edge
+            vec_up = vec_tan.cross(vec_edge)
 
             vec_width = vec_tan - (vec_tan.dot(vec_plane) / e_dot_p) * vec_edge
-            vec_depth = vec_norm - (vec_norm.dot(vec_plane) / e_dot_p) * vec_edge
+            vec_depth = vec_up - (vec_up.dot(vec_plane) / e_dot_p) * vec_edge
         else:
             vec_width = tan_avr
             vec_depth = norm_avr
@@ -492,8 +493,9 @@ class OffsetEdges(bpy.types.Operator):
                ('depth', "Depth", "Depth")],
         name="Depth mode", default='angle', update=use_cashes)
     angle = bpy.props.FloatProperty(
-        name="Angle", default=0, precision=3, step=.1, min=-4*pi, max=4*pi,
-        subtype='ANGLE', description="Angle", update=use_cashes)
+        name="Angle", default=0, precision=3, step=.1,
+        min=-4*pi, max=4*pi, subtype='ANGLE',
+        description="Angle", update=use_cashes)
     flip_angle = bpy.props.BoolProperty(
         name="Flip Angle", default=False,
         description="Flip Angle", update=use_cashes)
@@ -510,8 +512,10 @@ class OffsetEdges(bpy.types.Operator):
         name="Edge Rail Only End", default=False,
         description="Apply edge rail to end verts only")
     threshold = bpy.props.FloatProperty(
-        name="Threshold", default=radians(0.05), precision=5, step=1.0e-4, subtype='ANGLE',
-        description="Threshold which determines flat faces",
+        name="Flat Face Threshold", default=radians(0.05), precision=5,
+        step=1.0e-4, subtype='ANGLE',
+        description="If angle difference between two adjacent faces is "
+                    "under this value, those faces are regarded as flat.",
         options={'HIDDEN'})
     interactive = bpy.props.BoolProperty(
         name="Interactive", default=False,
@@ -558,10 +562,12 @@ class OffsetEdges(bpy.types.Operator):
 
         layout.prop(self, 'mirror_modifier')
 
-        layout.separator()
-        layout.label("Advanced:")
-        layout.prop(self, 'threshold')
         #layout.operator('mesh.offset_edges', text='Repeat')
+
+        if self.follow_face:
+            layout.separator()
+            layout.prop(self, 'threshold', text='Threshold')
+
 
     def get_offset_infos(self, bm, edit_object):
         if self.caches_valid and self._cache_offset_infos is not None:
@@ -624,7 +630,7 @@ class OffsetEdges(bpy.types.Operator):
             _cache_offset_infos.append((v_ixs, directions))
         self._cache_edges_orig_ixs = tuple(e.index for e in set_edges_orig)
 
-        print("OffsetEdges prepare: ", perf_counter() - time)
+        print("Preparing OffsetEdges: ", perf_counter() - time)
 
         return offset_infos, set_edges_orig
 
