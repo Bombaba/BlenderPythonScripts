@@ -32,7 +32,7 @@ bl_info = {
     "category": "Mesh"}
 
 import math
-from math import sin, cos, pi, copysign, sqrt
+from math import sin, cos, pi, copysign, radians
 import bpy
 import bmesh
 from mathutils import Vector
@@ -67,19 +67,6 @@ def calc_normal_from_verts(verts, fallback=Z_UP):
         normal = fallback
 
     return normal
-
-def get_factor(vec_direction, vec_right, vec_left, func=max):
-    # All vectors should have been normalized.
-    if vec_direction == ZERO_VEC:
-        return .0
-
-    sin_r = sqrt(1.0 - min(vec_right.dot(vec_direction) ** 2, 1.0))
-    sin_l = sqrt(1.0 - min(vec_left.dot(vec_direction) ** 2, 1.0))
-    denominator = func(sin_r, sin_l)
-    if denominator != .0:
-        return 1.0 / denominator
-    else:
-        return .0
 
 def collect_edges(bm):
     set_edges_orig = set()
@@ -138,33 +125,6 @@ def collect_loops(set_edges_orig):
                     loops.append(lp)
                     break
     return loops
-
-def reorder_loop(verts, edges, normal, adj_faces):
-    for i, adj_f in enumerate(adj_faces):
-        if adj_f is None:
-            continue
-        v1, v2 = verts[i], verts[i+1]
-        e = edges[i]
-        fv = tuple(adj_f.verts)
-        if fv[fv.index(v1)-1] is v2:
-            # Align loop direction
-            verts.reverse()
-            edges.reverse()
-            adj_faces.reverse()
-        if normal.dot(adj_f.normal) < .0:
-            normal *= -1
-        break
-    else:
-        # All elements in adj_faces are None
-        for v in verts:
-            if v.normal != ZERO_VEC:
-                if normal.dot(v.normal) < .0:
-                    verts.reverse()
-                    edges.reverse()
-                    normal *= -1
-                break
-
-    return verts, edges, normal, adj_faces
 
 def get_adj_ix(ix_start, vec_edges, half_loop):
     # Get adjacent edge index, skipping zero length edges
@@ -273,8 +233,8 @@ def move_verts(width, depth, verts, directions, geom_ex):
         #assert len(verts) == len(verts_ex)
         verts = verts_ex
 
-    for v, (vec_tan, vec_up) in zip(verts, directions):
-        v.co += width * vec_tan + depth * vec_up
+    for v, (vec_width, vec_depth) in zip(verts, directions):
+        v.co += width * vec_width + depth * vec_depth
 
 def extrude_edges(bm, edges_orig):
     extruded = bmesh.ops.extrude_edge_only(bm, edges=edges_orig)['geom']
@@ -380,7 +340,7 @@ def reorder_loop(verts, edges, lp_normal, adj_faces):
         # All elements in adj_faces are None
         for v in verts:
             if v.normal != ZERO_VEC:
-                if normal.dot(v.normal) < .0:
+                if lp_normal.dot(v.normal) < .0:
                     verts.reverse()
                     edges.reverse()
                     lp_normal *= -1
@@ -447,7 +407,7 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
         if face_right and face_left:
             norm_right = face_right.normal
             norm_left = face_left.normal
-            if norm_right.cross(norm_left).length > opt_threshold:
+            if norm_right.angle(norm_left) > opt_threshold:
                 # Two normals are different.
                 two_normals = True
         elif face_right or face_left:
@@ -457,14 +417,14 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
 
         tan_right = edge_right.cross(norm_right).normalized()
         tan_left = edge_left.cross(norm_left).normalized()
-        vec_tan = (tan_right + tan_left).normalized()
-        vec_up = (norm_right + norm_left).normalized()
+        tan_avr = (tan_right + tan_left).normalized()
+        norm_avr = (norm_right + norm_left).normalized()
 
-        if vec_tan != ZERO_VEC:
+        if tan_avr != ZERO_VEC:
             rail = None
             if vert_mirror_pairs and VERT_END:
                 if vert in vert_mirror_pairs:
-                    rail, vec_up = get_mirror_rail(vert_mirror_pairs[vert], vec_up)
+                    rail, norm_avr = get_mirror_rail(vert_mirror_pairs[vert], norm_avr)
             if two_normals or opt_edge_rail:
                 # Get edge rail.
                 # edge rail is a vector of an inner edge.
@@ -474,20 +434,31 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
                 # Get cross rail.
                 # Cross rail is a cross vector between norm_right and norm_left.
                 rail = get_cross_rail(
-                    vec_tan, edge_right, edge_left, norm_right, norm_left)
+                    tan_avr, edge_right, edge_left, norm_right, norm_left)
             if rail:
-                if vec_tan.dot(rail) >= .0:
-                    vec_tan = rail
+                if tan_avr.dot(rail) >= .0:
+                    tan_avr = rail
                 else:
-                    vec_tan = -rail
+                    tan_avr = -rail
 
-            # Make vec_up perpendicular to vec_tan.
-            vec_up -= vec_up.project(vec_tan)
-            vec_up.normalize()
+        vec_plane = norm_avr.cross(tan_avr)
+        e_dot_p_r = edge_right.dot(vec_plane)
+        e_dot_p_l = edge_left.dot(vec_plane)
+        if e_dot_p_r or e_dot_p_l:
+            if e_dot_p_r > e_dot_p_l:
+                vec_edge, vec_tan, vec_norm = edge_right, tan_right, norm_right
+                e_dot_p = e_dot_p_r
+            else:
+                vec_edge, vec_tan, vec_norm = edge_left, tan_left, norm_left
+                e_dot_p = e_dot_p_l
 
-        vec_tan *= get_factor(vec_tan, edge_right, edge_left)
-        vec_up *= get_factor(vec_up, edge_right, edge_left)
-        directions.append((vec_tan, vec_up))
+            vec_width = vec_tan - (vec_tan.dot(vec_plane) / e_dot_p) * vec_edge
+            vec_depth = vec_norm - (vec_norm.dot(vec_plane) / e_dot_p) * vec_edge
+        else:
+            vec_width = tan_avr
+            vec_depth = norm_avr
+
+        directions.append((vec_width, vec_depth))
 
     return verts, directions
 
@@ -539,7 +510,7 @@ class OffsetEdges(bpy.types.Operator):
         name="Edge Rail Only End", default=False,
         description="Apply edge rail to end verts only")
     threshold = bpy.props.FloatProperty(
-        name="Threshold", default=1.0e-3, precision=5, step=1.0e-4,
+        name="Threshold", default=radians(0.05), precision=5, step=1.0e-4, subtype='ANGLE',
         description="Threshold which determines flat faces",
         options={'HIDDEN'})
     interactive = bpy.props.BoolProperty(
@@ -658,7 +629,6 @@ class OffsetEdges(bpy.types.Operator):
         return offset_infos, set_edges_orig
 
     def do_offset_and_free(self, bm, me, offset_infos=None, set_edges_orig=None):
-        # This method should be called in object mode.
         # If offset_infos is None, use caches.
         # Makes caches invalid after offset.
 
@@ -697,7 +667,9 @@ class OffsetEdges(bpy.types.Operator):
 
         clean(bm, self.geometry_mode, edges_orig, geom_ex)
 
+        bpy.ops.object.mode_set(mode="OBJECT")
         bm.to_mesh(me)
+        bpy.ops.object.mode_set(mode="EDIT")
         bm.free()
         self.caches_valid = False  # Make caches invalid.
 
@@ -706,8 +678,7 @@ class OffsetEdges(bpy.types.Operator):
     def execute(self, context):
         # In edit mode
         edit_object = context.edit_object
-        bpy.ops.object.editmode_toggle()
-        # In object mode
+        bpy.ops.object.mode_set(mode="OBJECT")
 
         me = edit_object.data
         bm = bmesh.new()
@@ -715,14 +686,11 @@ class OffsetEdges(bpy.types.Operator):
 
         offset_infos, edges_orig = self.get_offset_infos(bm, edit_object)
         if offset_infos is False:
-            bpy.ops.object.editmode_toggle()
-            # In object mode
+            bpy.ops.object.mode_set(mode="EDIT")
             return {'CANCELLED'}
 
         self.do_offset_and_free(bm, me, offset_infos, edges_orig)
 
-        bpy.ops.object.editmode_toggle()
-        # In edit mode
         return {'FINISHED'}
 
     def restore_original_and_free(self, context):
@@ -730,13 +698,12 @@ class OffsetEdges(bpy.types.Operator):
         context.area.header_text_set()
 
         me = context.edit_object.data
-        bpy.ops.object.editmode_toggle()
-        # In object mode
+        bpy.ops.object.mode_set(mode="OBJECT")
         self._bm_orig.to_mesh(me)
+        bpy.ops.object.mode_set(mode="EDIT")
+
         self._bm_orig.free()
         context.area.header_text_set()
-        bpy.ops.object.editmode_toggle()
-        # In edit mode
 
     def modal(self, context, event):
         # In edit mode
@@ -754,11 +721,7 @@ class OffsetEdges(bpy.types.Operator):
                 return {'CANCELLED'}
             else:
                 context.area.header_text_set("Width {: .4}".format(self.width))
-                bpy.ops.object.editmode_toggle()
-                # In object mode
                 self.do_offset_and_free(self._bm_orig.copy(), me)
-                bpy.ops.object.editmode_toggle()
-                # In edit mode
                 return {'RUNNING_MODAL'}
 
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
@@ -777,13 +740,12 @@ class OffsetEdges(bpy.types.Operator):
         # In edit mode
         edit_object = context.edit_object
         me = edit_object.data
-        bpy.ops.object.editmode_toggle()
-        # In object mode
+        bpy.ops.object.mode_set(mode="OBJECT")
         for p in me.polygons:
             if p.select:
                 self.follow_face = True
                 break
-        #bpy.ops.object.editmode_toggle()
+        #bpy.ops.object.mode_set(mode="EDIT")
         ## In edit mode
         #return self.execute(context)
 
@@ -796,13 +758,11 @@ class OffsetEdges(bpy.types.Operator):
             self.angle = self.depth = .0
             self._initial_mouse = Vector((event.mouse_x, event.mouse_y))
             context.window_manager.modal_handler_add(self)
-            bpy.ops.object.editmode_toggle()
-            # In edit mode
+            bpy.ops.object.mode_set(mode="EDIT")
             return {'RUNNING_MODAL'}
         else:
             self.interactive = False
-            bpy.ops.object.editmode_toggle()
-            # In edit mode
+            bpy.ops.object.mode_set(mode="EDIT")
             return self.execute(context)
 
 class OffsetEdgesMenu(bpy.types.Menu):
