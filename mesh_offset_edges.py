@@ -20,7 +20,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 2, 5),
+    "version": (0, 2, 6),
     "blender": (2, 70, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -32,6 +32,7 @@ bl_info = {
 import math
 from math import sin, cos, pi, copysign, radians
 import bpy
+from bpy_extras import view3d_utils
 import bmesh
 from mathutils import Vector
 from time import perf_counter
@@ -466,6 +467,17 @@ def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs, **options
 def use_cashes(self, context):
     self.caches_valid = True
 
+angle_presets = {'0°': 0,
+                 '15°': radians(15),
+                 '30°': radians(30),
+                 '45°': radians(45),
+                 '60°': radians(60),
+                 '75°': radians(75),
+                 '90°': radians(90),}
+def assign_angle_presets(self, context):
+    use_cashes(self, context)
+    self.angle = angle_presets[self.angle_presets]
+
 class OffsetEdges(bpy.types.Operator):
     """Offset Edges."""
     bl_idname = "mesh.offset_edges"
@@ -494,7 +506,7 @@ class OffsetEdges(bpy.types.Operator):
         name="Depth mode", default='angle', update=use_cashes)
     angle = bpy.props.FloatProperty(
         name="Angle", default=0, precision=3, step=.1,
-        min=-4*pi, max=4*pi, subtype='ANGLE',
+        min=-2*pi, max=2*pi, subtype='ANGLE',
         description="Angle", update=use_cashes)
     flip_angle = bpy.props.BoolProperty(
         name="Flip Angle", default=False,
@@ -514,15 +526,22 @@ class OffsetEdges(bpy.types.Operator):
     threshold = bpy.props.FloatProperty(
         name="Flat Face Threshold", default=radians(0.05), precision=5,
         step=1.0e-4, subtype='ANGLE',
-        description="If angle difference between two adjacent faces is "
-                    "under this value, those faces are regarded as flat.",
-        options={'HIDDEN'})
-    interactive = bpy.props.BoolProperty(
-        name="Interactive", default=False,
+        description="If difference of angle between two adjacent faces is "
+                    "below this value, those faces are regarded as flat.",
         options={'HIDDEN'})
     caches_valid = bpy.props.BoolProperty(
         name="Caches Valid", default=False,
         options={'HIDDEN'})
+    angle_presets = bpy.props.EnumProperty(
+        items=[('0°', "0°", "0°"),
+               ('15°', "15°", "15°"),
+               ('30°', "30°", "30°"),
+               ('45°', "45°", "45°"),
+               ('60°', "60°", "60°"),
+               ('75°', "75°", "75°"),
+               ('90°', "90°", "90°"), ],
+        name="Angle Presets", default='0°',
+        update=assign_angle_presets)
 
     _cache_offset_infos = None
     _cache_edges_orig_ixs = None
@@ -550,6 +569,8 @@ class OffsetEdges(bpy.types.Operator):
         row = layout.row(align=True)
         row.prop(self, d_mode)
         row.prop(self, flip, icon='ARROW_LEFTRIGHT', icon_only=True)
+        if self.depth_mode == 'angle':
+            layout.prop(self, 'angle_presets', text="Presets", expand=True) 
 
         layout.separator()
 
@@ -711,37 +732,6 @@ class OffsetEdges(bpy.types.Operator):
         self._bm_orig.free()
         context.area.header_text_set()
 
-    def modal(self, context, event):
-        # In edit mode
-        if event.type == 'MOUSEMOVE':
-            edit_object = context.edit_object
-            me = edit_object.data
-
-            vec_delta = Vector((event.mouse_x, event.mouse_y)) - self._initial_mouse
-            #self.width = copysign(vec_delta.length, vec_delta.dot(X_UP)) * 0.01
-            self.width = vec_delta.x * 0.01
-            #self.angle = vec_delta.y * 0.01
-            offset_infos, _ = self.get_offset_infos(self._bm_orig, edit_object)
-            if offset_infos is False:
-                self.restore_original_and_free(context)
-                return {'CANCELLED'}
-            else:
-                context.area.header_text_set("Width {: .4}".format(self.width))
-                self.do_offset_and_free(self._bm_orig.copy(), me)
-                return {'RUNNING_MODAL'}
-
-        elif event.type in {'RIGHTMOUSE', 'ESC'}:
-            self.restore_original_and_free(context)
-            return {'CANCELLED'}
-
-        elif event.type == 'LEFTMOUSE':
-            context.area.header_text_set()
-            self._bm_orig.free()
-            self.caches_valid = False  # Make caches invalid
-            return {'FINISHED'}
-
-        return {'RUNNING_MODAL'}
-
     def invoke(self, context, event):
         # In edit mode
         edit_object = context.edit_object
@@ -751,25 +741,10 @@ class OffsetEdges(bpy.types.Operator):
             if p.select:
                 self.follow_face = True
                 break
-        #bpy.ops.object.mode_set(mode="EDIT")
-        ## In edit mode
-        #return self.execute(context)
 
         self.caches_valid = False
-        if self.interactive and context.space_data.type == 'VIEW_3D':
-            self.interactive = False
-            _bm_orig = bmesh.new()
-            _bm_orig.from_mesh(me)
-            self._bm_orig = _bm_orig
-            self.angle = self.depth = .0
-            self._initial_mouse = Vector((event.mouse_x, event.mouse_y))
-            context.window_manager.modal_handler_add(self)
-            bpy.ops.object.mode_set(mode="EDIT")
-            return {'RUNNING_MODAL'}
-        else:
-            self.interactive = False
-            bpy.ops.object.mode_set(mode="EDIT")
-            return self.execute(context)
+        bpy.ops.object.mode_set(mode="EDIT")
+        return self.execute(context)
 
 class OffsetEdgesMenu(bpy.types.Menu):
     bl_idname = "VIEW3D_MT_edit_mesh_offset_edges"
@@ -787,8 +762,6 @@ class OffsetEdgesMenu(bpy.types.Menu):
 
         mov = layout.operator('mesh.offset_edges', text='Move')
         mov.geometry_mode = 'move'
-
-        #off.interactive = ext.interactive = mov.interactive = True
 
 def draw_item(self, context):
     self.layout.menu("VIEW3D_MT_edit_mesh_offset_edges")
