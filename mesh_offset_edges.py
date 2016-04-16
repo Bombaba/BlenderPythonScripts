@@ -20,7 +20,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 3, 0),
+    "version": (0, 3, 1),
     "blender": (2, 76, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -1076,15 +1076,23 @@ class OffsetEdgesMenu(bpy.types.Menu):
         layout = self.layout
         layout.operator_context = 'INVOKE_DEFAULT'
 
-        off = layout.operator('mesh.offset_edges', text='Offset')
-        off.geometry_mode = 'offset'
+        self.layout.operator_enum('mesh.offset_edges', 'geometry_mode')
 
-        ext = layout.operator('mesh.offset_edges', text='Extrude')
-        ext.geometry_mode = 'extrude'
+        layout.separator()
+        layout.operator('mesh.offset_edges_profile', text='Profile')
 
-        mov = layout.operator('mesh.offset_edges', text='Move')
-        mov.geometry_mode = 'move'
-
+class VIEW3D_PT_OffsetEdges(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'TOOLS'
+    bl_category = 'Tools'
+    bl_context = 'mesh_edit'
+    bl_label = "Offset Edges"
+    bl_options = {'DEFAULT_CLOSED'}
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.operator_context = 'INVOKE_DEFAULT'
+        layout.operator_enum('mesh.offset_edges', 'geometry_mode')
         layout.separator()
         layout.operator('mesh.offset_edges_profile', text='Profile')
 
