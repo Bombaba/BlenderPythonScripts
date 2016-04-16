@@ -20,7 +20,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 3, 2),
+    "version": (0, 3, 3),
     "blender": (2, 76, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -1031,6 +1031,14 @@ class OffsetEdgesProfile(bpy.types.Operator, OffsetBase):
 
         return {'FINISHED'}
 
+    @staticmethod
+    def get_profile(context):
+        ob_edit = context.edit_object
+        for ob in context.selected_objects:
+            if ob != ob_edit and ob.type == 'CURVE':
+                return ob
+        return None
+
     def execute(self, context):
         if not self.name_profile:
             self.report({'WARNING'},
@@ -1054,12 +1062,8 @@ class OffsetEdgesProfile(bpy.types.Operator, OffsetBase):
         if self.is_mirrored(ob_edit):
             self.mirror_modifier = True
 
-        ob_edit = context.edit_object
-        for ob in context.selected_objects:
-            if ob != ob_edit and ob.type == 'CURVE':
-                ob_profile = ob
-                break
-        else:
+        ob_profile = self.get_profile(context)
+        if ob_profile is None:
             self.report({'WARNING'},
                          "Profile curve is not selected.")
             return {'CANCELLED'}
@@ -1094,6 +1098,7 @@ class VIEW3D_PT_OffsetEdges(bpy.types.Panel):
         layout.operator_context = 'EXEC_DEFAULT'
         layout.operator_enum('mesh.offset_edges', 'geometry_mode')
         layout.separator()
+        layout.operator_context = 'INVOKE_DEFAULT'
         layout.operator('mesh.offset_edges_profile', text='Profile')
 
 
