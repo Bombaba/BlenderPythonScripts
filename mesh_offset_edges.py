@@ -20,7 +20,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 3, 4),
+    "version": (0, 3, 5),
     "blender": (2, 76, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -944,7 +944,7 @@ class OffsetEdgesProfile(bpy.types.Operator, OffsetBase):
     magni_d = bpy.props.FloatProperty(
         name="Magniofication of Depth", default=1., precision=4, step=1,
         update=OffsetBase.use_caches)
-    name_profile = bpy.props.StringProperty()
+    name_profile = bpy.props.StringProperty(update=OffsetBase.use_caches)
 
     @classmethod
     def poll(self, context):
