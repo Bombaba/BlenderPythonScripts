@@ -20,7 +20,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 3, 3),
+    "version": (0, 3, 4),
     "blender": (2, 76, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -1057,8 +1057,8 @@ class OffsetEdgesProfile(bpy.types.Operator, OffsetBase):
 
     def invoke(self, context, event):
         ob_edit = context.edit_object
-        #if self.is_face_selected(ob_edit):
-        #    self.follow_face = True
+        if self.is_face_selected(ob_edit):
+            self.follow_face = True
         if self.is_mirrored(ob_edit):
             self.mirror_modifier = True
 
