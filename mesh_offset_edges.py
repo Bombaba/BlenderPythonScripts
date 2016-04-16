@@ -20,7 +20,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 3, 1),
+    "version": (0, 3, 2),
     "blender": (2, 76, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -1091,7 +1091,7 @@ class VIEW3D_PT_OffsetEdges(bpy.types.Panel):
     
     def draw(self, context):
         layout = self.layout
-        layout.operator_context = 'INVOKE_DEFAULT'
+        layout.operator_context = 'EXEC_DEFAULT'
         layout.operator_enum('mesh.offset_edges', 'geometry_mode')
         layout.separator()
         layout.operator('mesh.offset_edges_profile', text='Profile')
