@@ -20,7 +20,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 3, 5),
+    "version": (0, 3, 6),
     "blender": (2, 76, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -555,9 +555,6 @@ class OffsetBase:
         exverts_ordered = \
             [e.other_vert(v) for v in ref_verts for e in v.link_edges if e in side_edges]
 
-        for e in exedges:
-            e.select = True
-
         return exverts_ordered, list(exedges), list(side_edges)
 
     @staticmethod
@@ -668,11 +665,15 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
         ref_verts = [v for v, _, _ in offset_infos]
 
         if self.geometry_mode == 'move':
-            return ref_verts
+            exverts = ref_verts
+            exedges = edges_orig
+        else:
+            exverts, exedges, side_edges = self.extrude_and_pairing(bm, edges_orig, ref_verts)
+            if self.geometry_mode == 'offset':
+                bmesh.ops.delete(bm, geom=side_edges, context=2)
 
-        exverts, exedges, side_edges = self.extrude_and_pairing(bm, edges_orig, ref_verts)
-        if self.geometry_mode == 'offset':
-            bmesh.ops.delete(bm, geom=side_edges, context=2)
+        for e in exedges:
+            e.select = True
 
         return exverts
 
