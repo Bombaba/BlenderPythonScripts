@@ -20,7 +20,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 3, 6),
+    "version": (0, 3, 7),
     "blender": (2, 76, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -897,8 +897,8 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
 
         for i, v in enumerate(verts):
             vco_2d = loc3d_to_reg2d(reg, reg3d, v.co)
-            vco_2d.resize_3d()
             if vco_2d is not None:
+                vco_2d.resize_3d()
                 kd.insert(vco_2d, i)
         kd.balance()
 
