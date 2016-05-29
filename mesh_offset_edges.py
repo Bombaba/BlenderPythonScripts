@@ -20,7 +20,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 3, 7),
+    "version": (0, 3, 8),
     "blender": (2, 76, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -51,11 +51,11 @@ class OffsetEdgesPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__
     interactive = bpy.props.BoolProperty(
         name = "Interactive",
-        description = "adjast offset interactively",
+        description = "makes operation interactive",
         default = True)
-    lock_width = bpy.props.BoolProperty(
-        name = "Lock width while ctrl",
-        description = "offset width doesn't change while pressing ctrl key",
+    free_move = bpy.props.BoolProperty(
+        name = "Free Move",
+        description = "enables to adjust both width and depth while pressing ctrl-key",
         default = False)
 
     def draw(self, context):
@@ -63,7 +63,7 @@ class OffsetEdgesPreferences(bpy.types.AddonPreferences):
         row = layout.row()
         row.prop(self, "interactive")
         if self.interactive:
-            row.prop(self, "lock_width")
+            row.prop(self, "free_move")
 
 #######################################################################
 
@@ -531,6 +531,8 @@ class OffsetBase:
                 for v, d in zip(verts, directions):
                     offset_infos.append((v, v.co.copy(), d))
 
+        for e in edges_orig:
+            e.select = False
         for f in bm.faces:
             f.select = False
 
@@ -766,7 +768,7 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
             context.user_preferences.addons[__name__].preferences
         if pref.interactive and context.space_data.type == 'VIEW_3D': 
             # interactive mode
-            if not pref.lock_width:
+            if pref.free_move:
                 self.depth_mode = 'depth'
 
             ret = self.modal_prepare_bmeshes(context, ob_edit)
@@ -827,7 +829,7 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
             _mouse_current = Vector((event.mouse_x, event.mouse_y))
             vec_delta = _mouse_current - self._mouse_prev
 
-            if not pref.lock_width or not event.ctrl:
+            if pref.free_move or not event.ctrl:
                 self.width += vec_delta.x * self._factor
 
             if event.ctrl:
