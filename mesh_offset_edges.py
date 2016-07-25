@@ -20,7 +20,7 @@
 bl_info = {
     "name": "Offset Edges",
     "author": "Hidesato Ikeya",
-    "version": (0, 3, 8),
+    "version": (0, 3, 9),
     "blender": (2, 76, 0),
     "location": "VIEW3D > Edge menu(CTRL-E) > Offset Edges",
     "description": "Offset Edges",
@@ -781,7 +781,7 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
                 Vector((event.mouse_x, event.mouse_y)) 
             context.window_manager.modal_handler_add(self) 
             
-            self._factor = self.get_factor(context, self._mouse_init, self._edges_orig)
+            self._factor = self.get_factor(context, self._edges_orig)
 
             # toggle switchs of keys
             self._F = 0
@@ -890,24 +890,7 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
         self._bm_orig.free()
         self._bm.free()
 
-    def get_nearest_vert(self, context, origin, verts):
-        """find the nearest vertex to origin using kdtree."""
-        reg = context.region
-        reg3d = context.region_data
-        loc3d_to_reg2d = view3d_utils.location_3d_to_region_2d
-        kd = mathutils.kdtree.KDTree(len(verts))
-
-        for i, v in enumerate(verts):
-            vco_2d = loc3d_to_reg2d(reg, reg3d, v.co)
-            if vco_2d is not None:
-                vco_2d.resize_3d()
-                kd.insert(vco_2d, i)
-        kd.balance()
-
-        co, index, dist = kd.find(origin.resized(3))
-        return verts[index]
-
-    def get_factor(self, context, pos_mouse, edges):
+    def get_factor(self, context, edges_orig):
         """get the length in the space of edited object
         which correspond to 1px of 3d view. This method
         is used to convert the distance of mouse movement
@@ -916,12 +899,15 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
         ob = context.edit_object
         mat_w = ob.matrix_world
         reg = context.region
-        reg3d = context.region_data
+        reg3d = context.space_data.region_3d  # Don't use context.region_data
+                                              # because this will cause error
+                                              # when invoked from header menu.
 
-        verts = set(e.verts[0] for e in edges)
-        # get the nearest vertex to the mouse position
-        v_nearest = self.get_nearest_vert(context, pos_mouse, tuple(verts))
-        depth_loc = mat_w * v_nearest.co  # coord of the vertex in the world space
+        co_median = Vector((0, 0, 0))
+        for e in edges_orig:
+            co_median += e.verts[0].co
+        co_median /= len(edges_orig)
+        depth_loc = mat_w * co_median  # World coords of median point
 
         win_left = Vector((0, 0))
         win_right = Vector((reg.width, 0))
