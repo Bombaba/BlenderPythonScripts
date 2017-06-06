@@ -1139,91 +1139,6 @@ class OffsetEdgesProfile(bpy.types.Operator, OffsetBase):
         self.res_profile = ob_profile.data.resolution_u
         return self.execute(context)
 
-class BroadenEdges(bpy.types.Operator, OffsetBase):
-    """Broaden Edges."""
-    bl_idname = "mesh.broaden_edges"
-    bl_label = "Broaden Edges"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    width = bpy.props.FloatProperty(
-        name="Width", default=.2, precision=4, step=1,
-        update=OffsetBase.use_caches
-    )
-    lock_axis = bpy.props.EnumProperty(
-        items=[
-            ('x', "X", "Lock X axis"),
-            ('y', "Y", "Lock Y axis"),
-            ('z', "Z", "Lock Z axis"),
-            ('view', "VIEW", "Lock view axis")
-        ],
-        name="Lock Axis", default='z',
-    )
-
-    @classmethod
-    def poll(self, context):
-        return context.mode == 'EDIT_MESH'
-
-    def get_lockvector(self, context):
-        mode = self.lock_axis
-        if mode == 'x':
-            return X_UP
-        elif mode == 'y':
-            return Y_UP
-        elif mode == 'z':
-            return Z_UP
-        else:
-            vec = Z_UP.copy()
-            vec.rotate(context.region_data.view_rotation)
-            return vec
-
-    def get_verts_to_broad(self, bm, offset_infos, edges_orig):
-        ref_verts = [v for v, _, _ in offset_infos]
-        exverts1, exedges1, side_edges1 = \
-            self.extrude_and_pairing(bm, edges_orig, ref_verts)
-        bmesh.ops.delete(bm, geom=side_edges1, context=2)
-        exverts2, _, _ = \
-            self.extrude_and_pairing(bm, exedges1, exverts1)
-        return exverts1, exverts2
-
-    def get_offset_infos(self, bm, ob_edit, **options):
-        offset_infos, edges_orig = super().get_offset_infos(bm, ob_edit, **options)
-        for i, (v, vco, direction) in enumerate(offset_infos):
-            if direction[0].length == 0.0:
-                if i == 0:
-                    direction = offset_infos[1][2]
-                else:
-                    direction = offset_infos[i-1][2]
-                offset_infos[i] = (v, vco, direction)
-        return offset_infos, edges_orig
-
-    def execute(self, context):
-        # In edit mode
-        edit_object = context.edit_object
-        me = edit_object.data
-        bm = bmesh.from_edit_mesh(me)
-
-        if self.caches_valid and self._cache_offset_infos:
-            offset_infos, edges_orig = self.get_caches(bm)
-        else:
-            offset_infos, edges_orig = self.get_offset_infos(
-                bm, edit_object,
-                normal_override=self.get_lockvector(context),
-                threshold=self.threshold
-            )
-            if offset_infos is False:
-                return {'CANCELLED'}
-            self.save_caches(offset_infos, edges_orig)
-
-        #exverts = self.get_exverts(bm, offset_infos, edges_orig)
-        exverts1, exverts2 = self.get_verts_to_broad(bm, offset_infos, edges_orig)
-        self.move_verts(bm, me, self.width, 0, offset_infos, exverts1)
-        self.move_verts(bm, me, -self.width, 0, offset_infos, exverts2)
-
-        self.caches_valid = False
-        return {'FINISHED'}
-
-    def invoke(self, context, event):
-        return self.execute(context)
 
 class OffsetEdgesMenu(bpy.types.Menu):
     bl_idname = "VIEW3D_MT_edit_mesh_offset_edges"
@@ -1238,8 +1153,6 @@ class OffsetEdgesMenu(bpy.types.Menu):
         layout.separator()
         layout.operator('mesh.offset_edges_profile', text='Profile')
 
-        layout.separator()
-        layout.operator('mesh.broaden_edges', text='Broaden Edges')
 
 class VIEW3D_PT_OffsetEdges(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
@@ -1256,8 +1169,6 @@ class VIEW3D_PT_OffsetEdges(bpy.types.Panel):
         layout.separator()
         layout.operator_context = 'INVOKE_DEFAULT'
         layout.operator('mesh.offset_edges_profile', text='Profile')
-        layout.separator()
-        layout.operator('mesh.broaden_edges', text='Profile')
 
 
 def draw_item(self, context):
