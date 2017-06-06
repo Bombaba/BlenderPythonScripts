@@ -714,7 +714,7 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
         row.prop(self, d_mode)
         row.prop(self, flip, icon='ARROW_LEFTRIGHT', icon_only=True)
         if self.depth_mode == 'angle':
-            layout.prop(self, 'angle_presets', text="Presets", expand=True) 
+            layout.prop(self, 'angle_presets', text="Presets", expand=True)
 
         layout.separator()
 
@@ -754,7 +754,7 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
         self.caches_valid = False
         return {'FINISHED'}
 
-    def invoke(self, context, event): 
+    def invoke(self, context, event):
         # in edit mode
         ob_edit = context.edit_object
         if self.is_face_selected(ob_edit):
@@ -766,7 +766,7 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
 
         pref = \
             context.user_preferences.addons[__name__].preferences
-        if pref.interactive and context.space_data.type == 'VIEW_3D': 
+        if pref.interactive and context.space_data.type == 'VIEW_3D':
             # interactive mode
             if pref.free_move:
                 self.depth_mode = 'depth'
@@ -775,24 +775,24 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
             if ret is False:
                 return {'CANCELLED'}
 
-            self.width = self.angle = self.depth = .0 
+            self.width = self.angle = self.depth = .0
             self.flip_depth = self.flip_angle = self.flip_width = False
             self._mouse_init = self._mouse_prev = \
-                Vector((event.mouse_x, event.mouse_y)) 
-            context.window_manager.modal_handler_add(self) 
-            
+                Vector((event.mouse_x, event.mouse_y))
+            context.window_manager.modal_handler_add(self)
+
             self._factor = self.get_factor(context, self._edges_orig)
 
             # toggle switchs of keys
             self._F = 0
             self._A = 0
 
-            return {'RUNNING_MODAL'} 
-        else: 
+            return {'RUNNING_MODAL'}
+        else:
             return self.execute(context)
 
-    def modal(self, context, event): 
-        # In edit mode 
+    def modal(self, context, event):
+        # In edit mode
         ob_edit = context.edit_object
         me = ob_edit.data
         pref = \
@@ -810,7 +810,7 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
                 ret = self.modal_prepare_bmeshes(context, ob_edit)
                 if ret:
                     self.do_offset(self._bm, me, self._offset_infos, self._exverts)
-                    return {'RUNNING_MODAL'} 
+                    return {'RUNNING_MODAL'}
                 else:
                     return {'CANCELLED'}
 
@@ -823,9 +823,9 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
                 else:
                     self.depth_mode = 'angle'
 
-        context.area.header_text_set(self.create_header()) 
+        context.area.header_text_set(self.create_header())
 
-        if event.type == 'MOUSEMOVE': 
+        if event.type == 'MOUSEMOVE':
             _mouse_current = Vector((event.mouse_x, event.mouse_y))
             vec_delta = _mouse_current - self._mouse_prev
 
@@ -841,19 +841,19 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
             self._mouse_prev = _mouse_current
 
             self.do_offset(self._bm, me, self._offset_infos, self._exverts)
-            return {'RUNNING_MODAL'} 
+            return {'RUNNING_MODAL'}
 
-        elif event.type == 'LEFTMOUSE': 
-            self._bm_orig.free() 
-            context.area.header_text_set() 
-            return {'FINISHED'} 
+        elif event.type == 'LEFTMOUSE':
+            self._bm_orig.free()
+            context.area.header_text_set()
+            return {'FINISHED'}
 
-        elif event.type in {'RIGHTMOUSE', 'ESC'}: 
+        elif event.type in {'RIGHTMOUSE', 'ESC'}:
             self.modal_clean_bmeshes(context, ob_edit)
-            context.area.header_text_set() 
-            return {'CANCELLED'} 
+            context.area.header_text_set()
+            return {'CANCELLED'}
 
-        return {'RUNNING_MODAL'} 
+        return {'RUNNING_MODAL'}
 
     # methods below are usded in interactive mode
     def create_header(self):
@@ -863,13 +863,13 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
              "FollowFace(F):",
              "(ON)" if self.follow_face else "(OFF)",
             ])
-        
+
         return header.format(width=self.width, depth=self.depth, angle=degrees(self.angle))
 
     def modal_prepare_bmeshes(self, context, ob_edit):
         bpy.ops.object.mode_set(mode="OBJECT")
-        self._bm_orig = bmesh.new() 
-        self._bm_orig.from_mesh(ob_edit.data) 
+        self._bm_orig = bmesh.new()
+        self._bm_orig.from_mesh(ob_edit.data)
         bpy.ops.object.mode_set(mode="EDIT")
 
         self._bm = bmesh.from_edit_mesh(ob_edit.data)
@@ -1008,8 +1008,11 @@ class OffsetEdgesProfile(bpy.types.Operator, OffsetBase):
         edges = edges_orig
         for width, depth, _ in info_profile:
             exverts, exedges, _ = self.extrude_and_pairing(bm, edges, ref_verts)
-            self.move_verts(bm, me, width * self.magni_w, depth * self.magni_d, offset_infos,
-                            exverts, update=False)
+            self.move_verts(
+                bm, me, width * self.magni_w,
+                depth * self.magni_d, offset_infos,
+                exverts, update=False
+            )
             ref_verts = exverts
             edges = exedges
 
@@ -1036,7 +1039,9 @@ class OffsetEdgesProfile(bpy.types.Operator, OffsetBase):
 
         ob_profile = context.scene.objects[self.name_profile]
         if ob_profile and ob_profile.type == "CURVE":
-            info_profile = self.analize_profile(context, ob_profile, self.res_profile)
+            info_profile = self.analize_profile(
+                context, ob_profile, self.res_profile
+            )
             return self.offset_profile(context.edit_object, info_profile)
         else:
             self.name_profile = ""
@@ -1081,7 +1086,7 @@ class VIEW3D_PT_OffsetEdges(bpy.types.Panel):
     bl_context = 'mesh_edit'
     bl_label = "Offset Edges"
     bl_options = {'DEFAULT_CLOSED'}
-    
+
     def draw(self, context):
         layout = self.layout
         layout.operator_context = 'EXEC_DEFAULT'
