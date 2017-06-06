@@ -363,10 +363,6 @@ class OffsetBase:
     @staticmethod
     def get_directions(lp, vec_upward, normal_fallback, vert_mirror_pairs,
                        **options):
-        #opt_follow_face = self.follow_face
-        #opt_edge_rail = self.edge_rail
-        #opt_er_only_end = self.edge_rail_only_end
-        #opt_threshold = self.threshold
         opt_follow_face = options.get("follow_face")
         opt_edge_rail = options.get("edge_rail")
         opt_er_only_end = options.get("edge_rail_only_end")
@@ -379,6 +375,7 @@ class OffsetBase:
             lp_normal = OffsetBase.calc_loop_normal(verts, fallback=normal_fallback)
         else:
             lp_normal = opt_normal_override
+            opt_follow_face = False
 
         ##### Loop order might be changed below.
         if lp_normal.dot(vec_upward) < .0:
@@ -582,18 +579,32 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
 
     follow_face = bpy.props.BoolProperty(
         name="Follow Face", default=False,
-        description="Offset along faces around")
+        description="Offset along faces around"
+    )
     mirror_modifier = bpy.props.BoolProperty(
         name="Mirror Modifier", default=False,
-        description="Take into account of Mirror modifier")
+        description="Take into account of Mirror modifier"
+    )
     edge_rail = bpy.props.BoolProperty(
         name="Edge Rail", default=False,
-        description="Align vertices along inner edges")
+        description="Align vertices along inner edges"
+    )
     edge_rail_only_end = bpy.props.BoolProperty(
         name="Edge Rail Only End", default=False,
-        description="Apply edge rail to end verts only")
+        description="Apply edge rail to end verts only"
+    )
+    lock_axis = bpy.props.EnumProperty(
+        items=[
+            ('none', "None", "Don't lock axis"),
+            ('x', "X", "Lock X axis"),
+            ('y', "Y", "Lock Y axis"),
+            ('z', "Z", "Lock Z axis"),
+            ('view', "VIEW", "Lock view axis")
+        ],
+        name="Lock Axis", default='none'
+    )
 
-    # Functions below are update functions
+    # Functions below are update functions.
 
     def assign_angle_presets(self, context):
         angle_presets = {'0°': 0,
@@ -677,6 +688,19 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
         update=assign_angle_presets)
 
 
+    def get_lockvector(self, context):
+        axis = self.lock_axis
+        if axis == 'x':
+            return X_UP
+        elif axis == 'y':
+            return Y_UP
+        elif axis == 'z':
+            return Z_UP
+        else:
+            vec = Z_UP.copy()
+            vec.rotate(context.region_data.view_rotation)
+            return vec
+
     def get_exverts(self, bm, offset_infos, edges_orig):
         ref_verts = [v for v, _, _ in offset_infos]
 
@@ -730,6 +754,9 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
         if self.depth_mode == 'angle':
             layout.prop(self, 'angle_presets', text="Presets", expand=True)
 
+        layout.label("Lock Axis:")
+        layout.prop(self, 'lock_axis', text="Lock Axis", expand=True)
+
         layout.separator()
 
         layout.prop(self, 'follow_face')
@@ -763,6 +790,7 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
                 edge_rail=self.edge_rail,
                 edge_rail_only_end=self.edge_rail_only_end,
                 mirror_modifier=self.mirror_modifier,
+                normal_override=self.get_lockvector(context),
                 threshold=self.threshold
             )
             if offset_infos is False:
@@ -900,6 +928,7 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
             edge_rail=self.edge_rail,
             edge_rail_only_end=self.edge_rail_only_end,
             mirror_modifier=self.mirror_modifier,
+            normal_override=self.get_lockvector(context),
             threshold=self.threshold
         )
         if self._offset_infos is False:
