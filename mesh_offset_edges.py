@@ -690,6 +690,8 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
 
     def get_lockvector(self, context):
         axis = self.lock_axis
+        if axis == 'none':
+            return None
         if axis == 'x':
             return X_UP
         elif axis == 'y':
