@@ -690,18 +690,17 @@ class OffsetEdges(bpy.types.Operator, OffsetBase):
 
     def get_lockvector(self, context):
         axis = self.lock_axis
-        if axis == 'none':
-            return None
         if axis == 'x':
             return X_UP
         elif axis == 'y':
             return Y_UP
         elif axis == 'z':
             return Z_UP
-        else:
+        elif axis == 'view' and context.region_data:
             vec = Z_UP.copy()
             vec.rotate(context.region_data.view_rotation)
             return vec
+        return None
 
     def get_exverts(self, bm, offset_infos, edges_orig):
         ref_verts = [v for v, _, _ in offset_infos]
