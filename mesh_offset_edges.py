@@ -996,7 +996,7 @@ class OffsetEdgesProfile(bpy.types.Operator, OffsetBase):
         name="Resolution", default =6, min=0, max=100,
         update=OffsetBase.use_caches)
     magni_w = bpy.props.FloatProperty(
-        name="Magnification of Width", default=1., precision=4, step=1,
+        name="Magnification of Width", default=.2, precision=4, step=1,
         update=OffsetBase.use_caches)
     magni_d = bpy.props.FloatProperty(
         name="Magniofication of Depth", default=1., precision=4, step=1,
